@@ -138,22 +138,62 @@ function confirmModal(title, body, okText, onOk) {
 }
 
 // ---------- 顶栏 ----------
-// 每页加载时调一次：⋯ 菜单开关、登出按钮、右滑返回。
+// 每页加载时调一次：抽屉菜单开关、登出按钮、右滑返回。
 // 带防重复守卫：重复调用不得重复绑定（否则菜单点一次开关两次）。
 let topbarBound = false;
 async function initTopbar() {
   if (topbarBound) return;
   topbarBound = true;
-  const menuBtn = document.getElementById('topMenuBtn');
-  const menuPop = document.getElementById('topMenuPop');
-  if (menuBtn && menuPop) {
-    menuBtn.addEventListener('click', e => {
-      e.stopPropagation();
-      menuPop.hidden = !menuPop.hidden;
+  const burger = document.getElementById('burgerBtn');
+  const drawer = document.getElementById('drawer');
+  const scrim = document.getElementById('scrim');
+  if (burger && drawer && scrim) {
+    const openDrawer = () => {
+      drawer.classList.add('open');
+      scrim.classList.add('show');
+      burger.classList.add('open');
+      document.body.classList.add('drawer-open');
+    };
+    const closeDrawer = () => {
+      drawer.classList.remove('open');
+      scrim.classList.remove('show');
+      burger.classList.remove('open');
+      document.body.classList.remove('drawer-open');
+    };
+    burger.addEventListener('click', () => {
+      drawer.classList.contains('open') ? closeDrawer() : openDrawer();
     });
-    document.addEventListener('click', e => {
-      if (!e.target.closest('.topbar-menu')) menuPop.hidden = true;
-    });
+    scrim.addEventListener('click', closeDrawer);
+    document.addEventListener('keydown', e => { if (e.key === 'Escape') closeDrawer(); });
+    // 左滑抽屉关闭（右滑打开不做：左边缘手势已给右滑返回）
+    let touchX = null;
+    drawer.addEventListener('touchstart', e => { touchX = e.touches[0].clientX; }, { passive: true });
+    drawer.addEventListener('touchend', e => {
+      if (touchX === null) return;
+      if (touchX - e.changedTouches[0].clientX > 60) closeDrawer();
+      touchX = null;
+    }, { passive: true });
+    // 当前页高亮（详情页归到上级：小票详情→小票，商品详情→搜索）
+    const path = location.pathname;
+    const current = path === '/' ? 'home'
+      : path.startsWith('/receipt') ? 'receipts'
+      : path.startsWith('/search') || path.startsWith('/item/') ? 'search'
+      : path === '/watchlist' ? 'watchlist'
+      : path === '/alerts' ? 'alerts'
+      : path === '/settings' ? 'settings' : null;
+    if (current) {
+      const item = drawer.querySelector('[data-nav="' + current + '"]');
+      if (item) item.classList.add('current');
+    }
+    // 件数：小票总数与盯价件数，失败就留空，不挡主流程
+    api('/api/v1/receipts?per_page=1').then(d => {
+      const el = document.getElementById('receiptCount');
+      if (el && typeof d.total === 'number') el.textContent = d.total + ' 张';
+    }).catch(() => {});
+    api('/api/v1/watchlist').then(d => {
+      const el = document.getElementById('watchCount');
+      if (el && Array.isArray(d.watchlist)) el.textContent = d.watchlist.length + ' 件';
+    }).catch(() => {});
   }
   const btn = document.getElementById('logoutBtn');
   if (btn) btn.onclick = async () => {
@@ -166,13 +206,13 @@ async function initTopbar() {
 // ---------- 右滑返回 ----------
 // PWA 独立模式没有 Safari 的边缘右滑返回，自己实现：手指从左边缘
 // （32px 内）向右滑超过 80px（或快速滑过 40px），且纵向漂移小于 60px，
-// 就返回上一页。首页是根，不启用；弹窗打开时不启用。
+// 就返回上一页。首页是根，不启用；弹窗或抽屉打开时不启用。
 function initSwipeBack() {
   if (location.pathname === '/') return;
   const EDGE = 32, MIN_DX = 80, FAST_DX = 40, FAST_MS = 300, MAX_DY = 60;
   let startX = 0, startY = 0, startT = 0, tracking = false, swiping = false;
   document.addEventListener('touchstart', e => {
-    if (document.querySelector('.modal-backdrop')) { tracking = false; return; }
+    if (document.querySelector('.modal-backdrop') || document.querySelector('.drawer.open')) { tracking = false; return; }
     const t = e.touches[0];
     tracking = t.clientX < EDGE;
     swiping = false;

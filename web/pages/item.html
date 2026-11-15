@@ -15,21 +15,41 @@
 </head>
 <body data-back="/search">
 <header class="topbar">
+  <button class="burger" id="burgerBtn" aria-label="菜单"><span></span><span></span><span></span></button>
   <a class="brand" href="/">ReceiptBin</a>
-  <div class="topbar-actions">
-    <div class="topbar-menu">
-      <button class="icon-btn" id="topMenuBtn" aria-label="菜单">⋯</button>
-      <div class="menu-pop" id="topMenuPop" hidden>
-        <a class="menu-item" href="/receipts">小票</a>
-        <a class="menu-item" href="/search">搜索</a>
-        <a class="menu-item" href="/watchlist">盯价</a>
-        <a class="menu-item" href="/alerts">提醒</a>
-        <a class="menu-item" href="/settings">设置</a>
-        <button class="menu-item danger" id="logoutBtn">登出</button>
-      </div>
-    </div>
-  </div>
 </header>
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="菜单">
+  <div class="drawer-head">
+    <div class="logo">ReceiptBin</div>
+    <div class="sub">Costco 购物记录</div>
+  </div>
+  <nav>
+    <a class="drawer-item" data-nav="home" href="/">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg>
+      首页</a>
+    <a class="drawer-item" data-nav="receipts" href="/receipts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 3h12v18l-2-1.5L14 21l-2-1.5L10 21l-2-1.5L6 21z"/><path d="M9 8h6M9 12h6"/></svg>
+      小票<span class="count" id="receiptCount"></span></a>
+    <a class="drawer-item" data-nav="search" href="/search">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      搜索</a>
+    <a class="drawer-item" data-nav="watchlist" href="/watchlist">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41 11 3H4v7l9.59 9.59a2 2 0 0 0 2.82 0l4.18-4.18a2 2 0 0 0 0-2.82z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>
+      盯价<span class="count" id="watchCount"></span></a>
+    <a class="drawer-item" data-nav="alerts" href="/alerts">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M18 8a6 6 0 1 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+      提醒</a>
+    <a class="drawer-item" data-nav="settings" href="/settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      设置</a>
+  </nav>
+  <div class="drawer-foot">
+    <button class="drawer-item danger" id="logoutBtn">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5"/><path d="M21 12H9"/></svg>
+      登出</button>
+  </div>
+</aside>
 <main>
   <div id="content"><p class="muted">加载中…</p></div>
 </main>
