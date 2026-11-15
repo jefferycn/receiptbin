@@ -88,6 +88,12 @@ body.drawer-open { overflow: hidden; }
 .clear-all { background: none; border: none; color: var(--muted); font-size: 14px;
   cursor: pointer; padding: 9px 6px; }
 
+/* 小票详情：带分类筛选进来时的筛选条（胶囊只作指示，不可点） */
+.filter-bar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 4px 0 12px; }
+.filter-bar:empty { display: none; }
+.filter-bar .fchip { cursor: default; }
+.filter-bar .fchip:active { opacity: 1; }
+
 /* 底部弹出选择器 */
 .sheet-scrim { position: fixed; inset: 0; z-index: 90; background: rgba(0,0,0,.32);
   opacity: 0; pointer-events: none; transition: opacity .25s ease; }

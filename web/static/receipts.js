@@ -140,8 +140,10 @@ async function load() {
   if (!d.receipts.length) {
     list.innerHTML = '<div class="empty">没有符合条件的小票。</div>';
   } else {
+    // 带分类筛选时把分类带进详情页，详情默认只显示该分类的商品
+    const catParam = state.category ? '?category=' + encodeURIComponent(state.category) : '';
     list.innerHTML = d.receipts.map(r =>
-      '<div class="item-row" onclick="location.href=\'/receipt/' + esc(r.id) + '\'">' +
+      '<div class="item-row" onclick="location.href=\'/receipt/' + esc(r.id) + catParam + '\'">' +
       '<div class="row-head"><span class="row-title">' + esc(r.store) + ' #' + esc(r.store_no) +
       '</span><span class="row-meta money">' + fmtMoney(r.total_cents) + '</span></div>' +
       '<div class="row-sub">' + fmtDate(r.purchased_at) + ' · ' + r.item_count + ' 件' +
