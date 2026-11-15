@@ -159,6 +159,11 @@ func (a *App) routes() *http.ServeMux {
 	mux.HandleFunc("DELETE /api/products/{item_number}", a.requireAPIToken(a.deleteProductHandler))
 	mux.HandleFunc("GET /api/products/unmapped", a.requireAPIToken(a.listUnmappedHandler))
 
+	// ---- 盯价清单 API（v1.8）：同上，共用 Bearer <redacted> ----
+	mux.HandleFunc("GET /api/watchlist", a.requireAPIToken(a.listWatchlistAPIHandler))
+	mux.HandleFunc("POST /api/watchlist", a.requireAPIToken(a.addWatchAPIHandler))
+	mux.HandleFunc("DELETE /api/watchlist/{itemNo}", a.requireAPIToken(a.removeWatchAPIHandler))
+
 	// 未匹配的路径：浏览器回首页，API 返回 404
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Header.Get("Accept"), "text/html") {

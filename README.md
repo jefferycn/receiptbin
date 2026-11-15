@@ -83,12 +83,32 @@ curl -X DELETE -H "Authorization: Bearer $TOKEN" $BASE/api/products/9000002
 
 分类必须是这十一个之一：生鲜、肉类海鲜、乳制品/饮品、烘焙/干货、日用品、厨房用品、宠物、运动、家居、礼品卡、其他。
 
+## 盯价清单 API（v1.8）
+
+与词典 API 共用同一个 Bearer <redacted>，接口在 `/api/watchlist`：
+
+```bash
+# 列出盯价清单（含词典中文名与最近一次观察价）
+curl -H "Authorization: Bearer $TOKEN" $BASE/api/watchlist
+
+# 批量新增/更新（一次最多 100 条；target_cents 可空，只看降价；
+# 已在清单里的货号会更新目标价，省略 target_cents 则保持原值）
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"items":[
+    {"item_no":"9000001","target_cents":899},
+    {"item_no":"9000002"}
+  ]}' $BASE/api/watchlist
+
+# 从清单移除（不在清单里返回 404）
+curl -X DELETE -H "Authorization: Bearer $TOKEN" $BASE/api/watchlist/9000002
+```
+
 ## 本地开发
 
 ```bash
 go build ./...   # 需要 Go 1.27+
 go vet ./...
-go test ./...    # 32 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离、商品词典与 API
+go test ./...    # 39 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离、商品词典与 API、盯价清单 API
 ```
 
 OCR 需要本机装 tesseract（`tesseract-ocr` + 英文数据），否则照片上传会报 OCR 失败；PDF 导入需要 `pdftotext`（poppler-utils），缺失时 PDF 上传会明确报错；其余功能不受影响。
