@@ -322,6 +322,62 @@ func TestSnapItemNumbers(t *testing.T) {
 	}
 }
 
+// shortItemNoFixture：3 位短货号回归夹具（照片 OCR 路径）。
+// 2026-11-14 真实小票：3 位短货号曾被漏掉。数字全是虚构的。
+const shortItemNoFixture = `COSTCO WHOLESALE
+Fremont #123
+1000 Example Blvd
+Fremont, CA 94536
+E 402 RICE 50LB 26.99
+1000001 KS ALMONDS 15.99
+SUBTOTAL 42.98
+TAX 0.00
+**** TOTAL 42.98
+XXXXXXXXXXXX4242 H
+APPROVED - Purchase
+AMOUNT: $42.98
+Visa 42.98
+CHANGE 0.00
+TOTAL TAX 0.00
+TOTAL NUMBER OF ITEMS SOLD = 2
+Items Sold: 2
+BP 09/12/2026 14:25
+`
+
+func TestParseShortItemNo(t *testing.T) {
+	p, err := ParseReceiptText(shortItemNoFixture)
+	if err != nil {
+		t.Fatalf("短货号小票解析失败：%v", err)
+	}
+	if len(p.Items) != 2 {
+		t.Fatalf("商品行 = %d，想要 2（3 位货号行不能漏）", len(p.Items))
+	}
+	byNo := map[string]ParsedItem{}
+	qty := 0
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+		qty += it.Qty
+	}
+	rice, ok := byNo["402"]
+	if !ok {
+		t.Fatalf("3 位货号商品 402 没解析出来")
+	}
+	if rice.Name != "RICE 50LB" || rice.UnitPriceCents != 2699 {
+		t.Errorf("402 品名/单价 = %q/%d，想要 RICE 50LB/2699", rice.Name, rice.UnitPriceCents)
+	}
+	if qty != 2 || p.ItemCount != 2 {
+		t.Errorf("件数 = 解析 %d / 打印 %d，想要 2/2", qty, p.ItemCount)
+	}
+	if p.GrossCents != 4298 || p.SubtotalCents != 4298 || p.TotalCents != 4298 {
+		t.Errorf("原价/小计/总计 = %d/%d/%d，想要 4298/4298/4298",
+			p.GrossCents, p.SubtotalCents, p.TotalCents)
+	}
+	problems, _ := Reconcile(p)
+	if len(problems) != 0 {
+		t.Errorf("对账应通过，问题：%v", problems)
+	}
+}
+
 func TestParseEmpty(t *testing.T) {
 	if _, err := ParseReceiptText(""); err == nil {
 		t.Errorf("空文本应返回错误")

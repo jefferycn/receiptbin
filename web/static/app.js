@@ -138,7 +138,7 @@ function confirmModal(title, body, okText, onOk) {
 }
 
 // ---------- 顶栏 ----------
-// 每页加载时调一次：⋯ 菜单开关、登出按钮、未处理提醒角标。
+// 每页加载时调一次：⋯ 菜单开关、登出按钮。
 async function initTopbar() {
   const menuBtn = document.getElementById('topMenuBtn');
   const menuPop = document.getElementById('topMenuPop');
@@ -156,14 +156,6 @@ async function initTopbar() {
     await api('/api/v1/logout', { method: 'POST' }).catch(() => {});
     location.href = '/login';
   };
-  try {
-    const d = await api('/api/v1/alerts?status=open');
-    const n = d.open_count || 0;
-    document.querySelectorAll('[data-alert-badge]').forEach(el => {
-      el.textContent = n > 0 ? String(n) : '';
-      el.hidden = n === 0;
-    });
-  } catch { /* 未登录页不调这个 */ }
 }
 
 // ---------- 分类颜色（环形图与图例共用） ----------

@@ -66,7 +66,7 @@ func ExtractPDFText(pdfPath string) (string, error) {
 }
 
 // memberLineRe 匹配独立成行的 12 位数字：Costco 会员号是 12 位。
-// 交易流水号是 23 位、货号是 4–7 位，都不会误伤。
+// 交易流水号是 23 位、货号是 3–7 位，都不会误伤。
 var memberLineRe = regexp.MustCompile(`^\d{12}$`)
 
 // memberInlineRe 匹配行内独立的 12 位数字（防 "Member 123456789012" 这种同一行写法）。

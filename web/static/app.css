@@ -43,9 +43,6 @@ h2 { font-size: 17px; margin: 24px 0 8px; }
 .badge { position: absolute; top: -4px; right: -4px; min-width: 18px; height: 18px;
   padding: 0 4px; border-radius: 9px; background: var(--danger); color: #fff;
   font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; }
-.menu-item .badge-inline { display: inline-block; min-width: 18px; height: 18px; padding: 0 5px;
-  margin-left: 6px; border-radius: 9px; background: var(--danger); color: #fff;
-  font-size: 11px; font-weight: 700; line-height: 18px; text-align: center; vertical-align: 2px; }
 
 /* 按钮与输入 */
 .btn { display: inline-block; padding: 10px 18px; border: 1px solid var(--line); border-radius: 999px;

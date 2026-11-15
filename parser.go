@@ -65,8 +65,9 @@ var (
 	// 也可能是 : 或 °（如 24:99、8°99）。冒号要当心时间 "14:25"，
 	// 见 findAmounts 里的过滤规则。
 	amountRe = regexp.MustCompile(`(\d{1,4})([.,:°])(\d{2})`)
-	// itemNoRe 匹配货号：4–7 位数字，前后不能是数字（避免把条码/会员号切碎）。
-	itemNoRe = regexp.MustCompile(`(?:^|[^\d])(\d{4,7})(?:\s|$)`)
+	// itemNoRe 匹配货号：3–7 位数字，前后不能是数字（避免把条码/会员号切碎）。
+	// 货号有 3 位的（如夹具里的 402）；1–2 位不收，避免把价格小数、重量误认成货号。
+	itemNoRe = regexp.MustCompile(`(?:^|[^\d])(\d{3,7})(?:\s|$)`)
 	// discountRefRe 匹配折扣行的 0000 开头长号。
 	discountRefRe = regexp.MustCompile(`0{4,}\d+`)
 	storeRe       = regexp.MustCompile(`([A-Za-z][A-Za-z .]*?)\s+#(\d{1,3})\b`)
@@ -357,20 +358,20 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 func discountItemRef(line string) string {
 	if i := strings.Index(line, "/"); i >= 0 {
 		rest := line[i+1:]
-		if m := regexp.MustCompile(`(\d{4,7})`).FindStringSubmatch(rest); m != nil {
+		if m := regexp.MustCompile(`(\d{3,7})`).FindStringSubmatch(rest); m != nil {
 			return m[1]
 		}
 	}
-	// 兜底：金额前的最后一组 4–7 位数字（跳过开头的 0000 长号）
+	// 兜底：金额前的最后一组 3–7 位数字（跳过 0 开头的长号碎片，如 0000399036 切出的 036）
 	norm := normalizeAmountText(line)
 	loc := amountRe.FindStringIndex(norm)
 	head := norm
 	if loc != nil {
 		head = norm[:loc[0]]
 	}
-	groups := regexp.MustCompile(`\d{4,7}`).FindAllString(head, -1)
+	groups := regexp.MustCompile(`\d{3,7}`).FindAllString(head, -1)
 	for i := len(groups) - 1; i >= 0; i-- {
-		if !strings.HasPrefix(groups[i], "0000") {
+		if !strings.HasPrefix(groups[i], "0") {
 			return groups[i]
 		}
 	}
@@ -394,7 +395,7 @@ func cleanItemName(s string) string {
 
 // ---------- 货号纠错 ----------
 
-// levenshtein 返回两个短字符串的编辑距离（货号只有 4–7 位，直接算即可）。
+// levenshtein 返回两个短字符串的编辑距离（货号只有 3–7 位，直接算即可）。
 func levenshtein(a, b string) int {
 	ra, rb := []rune(a), []rune(b)
 	prev := make([]int, len(rb)+1)

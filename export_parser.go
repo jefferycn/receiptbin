@@ -26,10 +26,11 @@ var (
 	exportQtyRe = regexp.MustCompile(`^(\d+)\s+@\s+(\d{1,4}[.,]\d{2})\s*$`)
 	// exportDiscountRe 匹配折扣行：金额带尾随减号，如 "3000099  3.00-"。
 	exportDiscountRe = regexp.MustCompile(`(\d{1,4}[.,]\d{2})-\s*$`)
-	// exportItemRe 匹配商品行：可选单字母前缀、4–7 位货号、品名（可空）、金额、可选 N/Y 后缀。
+	// exportItemRe 匹配商品行：可选单字母前缀、3–7 位货号、品名（可空）、金额、可选 N/Y 后缀。
 	// 前缀不止 E：F 是 FSA 合格商品（如卫生用品、绷带），只认 E 会把整行漏掉（2026-11-14 实测）。
 	// 只有 E 算食品免税，其他字母只作前缀接受、不记标志。
-	exportItemRe = regexp.MustCompile(`^([A-Z])?\s*(\d{4,7})\s+(.*?)\s*(\d{1,4}[.,]\d{2})\s*([NY])?\s*$`)
+	// 货号有 3 位的（如夹具里的 402）；1–2 位不收，避免把价格、重量误认成货号。
+	exportItemRe = regexp.MustCompile(`^([A-Z])?\s*(\d{3,7})\s+(.*?)\s*(\d{1,4}[.,]\d{2})\s*([NY])?\s*$`)
 	// exportWhseRe 匹配页脚门店号："Whse: 663"（页眉门店行读不出时的兜底）。
 	exportWhseRe = regexp.MustCompile(`Whse:\s*(\d{1,3})\b`)
 	// exportContinuationRe 匹配品名续行：大写单词，如 NAPKINS、BLUEBERRIES。

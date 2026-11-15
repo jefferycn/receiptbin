@@ -151,8 +151,8 @@ func TestParseExportReceipt(t *testing.T) {
 	}
 }
 
-// exportFPrefixFixture：F 前缀商品（FSA 合格商品）回归夹具。
-// 2026-11-14 真实小票：F 前缀行曾被商品正则漏掉。数字全是虚构的。
+// exportFPrefixFixture：F 前缀商品（FSA 合格商品）与 3 位短货号回归夹具。
+// 2026-11-14 真实小票：F 前缀行曾被商品正则漏掉；3 位短货号也曾被漏掉。数字全是虚构的。
 // 对账：8.99 + 9.99 = 18.98，税 9.99×8.75% ≈ 0.87，总计 19.85。
 const exportFPrefixFixture = `RIVERTON #456
 1200 Sample Road
@@ -164,7 +164,7 @@ Riverton, CA 94000
 Member
 123456789012
 F                   4000001 BANDAGE ROLL 8.99 N
-                    4000002 PAPER TOWEL  9.99 Y
+                    402 PAPER TOWEL     9.99 Y
                              SUBTOTAL    18.98
                              TAX         0.87
                     ****     TOTAL       19.85
@@ -195,13 +195,13 @@ Items Sold: 2
 P7 08/15/2026 04:40
 `
 
-func TestParseExportFPrefix(t *testing.T) {
+func TestParseExportFPrefixAndShortItemNo(t *testing.T) {
 	p, err := ParseExportReceiptText(exportFPrefixFixture)
 	if err != nil {
 		t.Fatalf("F 前缀小票解析失败：%v", err)
 	}
 	if len(p.Items) != 2 {
-		t.Fatalf("商品行 = %d，想要 2（F 前缀行不能漏）", len(p.Items))
+		t.Fatalf("商品行 = %d，想要 2（F 前缀行与 3 位货号行都不能漏）", len(p.Items))
 	}
 	byNo := map[string]ParsedItem{}
 	qty := 0
@@ -220,8 +220,11 @@ func TestParseExportFPrefix(t *testing.T) {
 	if band.FoodExempt || band.Taxable {
 		t.Errorf("F 前缀商品应为非食品免税、非应税")
 	}
-	if !byNo["4000002"].Taxable {
+	if !byNo["402"].Taxable {
 		t.Errorf("PAPER TOWEL 应为应税（Y）")
+	}
+	if byNo["402"].Name != "PAPER TOWEL" {
+		t.Errorf("402 品名 = %q，想要 PAPER TOWEL（3 位货号不能漏）", byNo["402"].Name)
 	}
 	if qty != p.ItemCount || p.ItemCount != 2 {
 		t.Errorf("件数 = 解析 %d / 打印 %d，想要 2/2", qty, p.ItemCount)

@@ -20,11 +20,10 @@
     <div class="topbar-menu">
       <button class="icon-btn" id="topMenuBtn" aria-label="菜单">⋯</button>
       <div class="menu-pop" id="topMenuPop" hidden>
-        <a class="menu-item" href="/upload">扫小票</a>
         <a class="menu-item" href="/receipts">小票</a>
         <a class="menu-item" href="/search">搜索</a>
         <a class="menu-item" href="/watchlist">盯价</a>
-        <a class="menu-item" href="/alerts">提醒<span class="badge-inline" data-alert-badge hidden></span></a>
+        <a class="menu-item" href="/alerts">提醒</a>
         <a class="menu-item" href="/settings">设置</a>
         <button class="menu-item danger" id="logoutBtn">登出</button>
       </div>
@@ -42,6 +41,13 @@
   <div id="list"><p class="muted">加载中…</p></div>
   <div class="pager" id="pager"></div>
   <p class="stats" id="stats"></p>
+  <a class="fab" href="/upload" aria-label="扫小票">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/>
+      <path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/>
+      <path d="M7 12h10"/>
+    </svg>
+  </a>
 </main>
 <div id="toast"></div>
 <script src="/static/app.js"></script>
