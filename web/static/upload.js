@@ -244,7 +244,7 @@ $('saveBtn').addEventListener('click', async () => {
     if (e.status === 409) {
       // 重复小票：让用户确认是否仍要保存
       btn.disabled = false;
-      confirmModal('可能重复导入', e.message + '确定仍要保存这张小票吗？', '仍要保存', async () => {
+      confirmModal('已经有一张相同的小票', e.message + '确定仍要保存这张小票吗？', '仍要保存', async () => {
         btn.disabled = true;
         try { await saveReceipt(true); } catch (e2) { toast(e2.message); btn.disabled = false; }
       });

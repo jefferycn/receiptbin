@@ -91,6 +91,25 @@ func TestListMonthsReturnsDistinctDesc(t *testing.T) {
 	}
 }
 
+func TestFindDuplicateReceiptMatchesByDay(t *testing.T) {
+	app := testApp(t)
+	// 用 999 号店避开种子数据；insertRawReceipt 的时间是 2026-09-12 14:25
+	insertRawReceipt(t, app, "d1", "FREMONT", "999")
+	// 同日不同时刻（照片 P7 行 12 小时制读出的 04:40）也应判重
+	dup, err := app.store.FindDuplicateReceipt("999", "2026-09-12 04:40", 0)
+	if err != nil || dup == nil || dup.ID != "d1" {
+		t.Errorf("同日不同时刻应判重，dup=%v err=%v", dup, err)
+	}
+	// 不同日期不判重
+	if dup, err := app.store.FindDuplicateReceipt("999", "2026-09-13 14:25", 0); err == nil {
+		t.Errorf("不同日期不应判重，dup=%v", dup)
+	}
+	// 同日同总价但不同门店不判重
+	if dup, err := app.store.FindDuplicateReceipt("998", "2026-09-12 14:25", 0); err == nil {
+		t.Errorf("不同门店不应判重，dup=%v", dup)
+	}
+}
+
 func TestValidCategoryGiftCard(t *testing.T) {
 	// v1.7 新增分类：礼品卡（用户要求）；"其他" 仍为默认分类，留在最后一位
 	if !validCategory("礼品卡") {

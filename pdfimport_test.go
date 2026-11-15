@@ -195,6 +195,66 @@ Items Sold: 2
 P7 08/15/2026 04:40
 `
 
+// exportDiscountFixture：折扣行带 /货号 时挂给对应商品（2026-11-15 实测 1114.pdf 格式）。
+// 原价 51.97 − 折扣 17.00（球 10.00 + 袜 5.00 + 整单 2.00）= 小计 34.97，税 3.23，总计 38.20。
+const exportDiscountFixture = `RIVERTON #456
+1200 Sample Road
+Riverton, CA 94000
+
+2 @ 19.99
+                    3000010 BALL         39.98 Y
+                    400530 /3000010      10.00-
+                    3000011 SOCKS 6PK    11.99 Y
+                    401104 /3000011       5.00-
+                    3000099               2.00-
+                             SUBTOTAL    34.97
+                             TAX          3.23
+                    ****     TOTAL       38.20
+AMOUNT: $38.20
+08/15/2026 16:40 456 3 123 789
+VISA                                        38.20
+TOTAL NUMBER OF ITEMS SOLD = 3
+INSTANT SAVINGS                             $17.00
+08/15/2026 16:40 456 3 123 789
+      Whse: 456    Trm: 3   Trn: 123   OPT: 789
+Items Sold: 3
+P7 08/15/2026 04:40
+`
+
+func TestParseExportItemDiscounts(t *testing.T) {
+	p, err := ParseExportReceiptText(exportDiscountFixture)
+	if err != nil {
+		t.Fatalf("导出小票解析失败：%v", err)
+	}
+	if len(p.Items) != 2 {
+		t.Fatalf("商品行 = %d，想要 2（折扣行不是商品）", len(p.Items))
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	// 数量行 + 折扣：2 个球原价 39.98，折扣 10.00 → 每件折 5.00，实付 29.98
+	ball := byNo["3000010"]
+	if ball.Qty != 2 || ball.UnitPriceCents != 1999 || ball.DiscountCents != 500 || ball.NetCents != 2998 {
+		t.Errorf("球 qty/单价/折扣/实付 = %d/%d/%d/%d，想要 2/1999/500/2998",
+			ball.Qty, ball.UnitPriceCents, ball.DiscountCents, ball.NetCents)
+	}
+	socks := byNo["3000011"]
+	if socks.DiscountCents != 500 || socks.NetCents != 699 {
+		t.Errorf("袜子 折扣/实付 = %d/%d，想要 500/699", socks.DiscountCents, socks.NetCents)
+	}
+	// 折扣合计 17.00，其中只有无货号引用的 2.00 是整单立减
+	if p.DiscountCents != 1700 || p.ReceiptDiscountCents != 200 {
+		t.Errorf("折扣合计/整单立减 = %d/%d，想要 1700/200", p.DiscountCents, p.ReceiptDiscountCents)
+	}
+	if p.GrossCents != 5197 || p.SubtotalCents != 3497 || p.TotalCents != 3820 {
+		t.Errorf("原价/小计/总计 = %d/%d/%d，想要 5197/3497/3820", p.GrossCents, p.SubtotalCents, p.TotalCents)
+	}
+	if problems, _ := Reconcile(p); len(problems) > 0 {
+		t.Errorf("对账应通过，实际问题：%v", problems)
+	}
+}
+
 func TestParseExportFPrefixAndShortItemNo(t *testing.T) {
 	p, err := ParseExportReceiptText(exportFPrefixFixture)
 	if err != nil {

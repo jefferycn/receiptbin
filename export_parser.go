@@ -8,7 +8,8 @@ package main
 //   E  3000001 GREEN TEA   12.49 N      商品行：单字母前缀（E=食品免税，F=FSA 合格商品等），N/Y 后缀（Y=应税）
 //   2 @ 4.50                            数量行：在商品行之前，商品行金额是小计
 //   3000002 PAPER 9.99 Y + 下一行 NAPKINS  品名可能换行续在下一行
-//   3000099  3.00-                      折扣行：金额带尾随 -，是整单立减，不是商品
+//   400530 /2056254  25.00-             折扣行：优惠券号 /货号 + 金额，挂给对应商品
+//   3000099  3.00-                      折扣行（无货号引用）：整单立减，不挂给商品
 //   SUBTOTAL / TAX / **** TOTAL / INSTANT SAVINGS / ITEMS SOLD = N
 //   08/15/2026 16:40 456 3 123 789      交易时间（取第一个；末尾 P7 行是 12 小时制，别用）
 //
@@ -24,8 +25,10 @@ import (
 var (
 	// exportQtyRe 匹配数量行："2 @ 6.69"（在对应商品行之前）。
 	exportQtyRe = regexp.MustCompile(`^(\d+)\s+@\s+(\d{1,4}[.,]\d{2})\s*$`)
-	// exportDiscountRe 匹配折扣行：金额带尾随减号，如 "3000099  3.00-"。
+	// exportDiscountRe 匹配折扣行：金额带尾随减号，如 "400530 /2056254  25.00-"。
 	exportDiscountRe = regexp.MustCompile(`(\d{1,4}[.,]\d{2})-\s*$`)
+	// exportDiscountRefRe 匹配折扣行里的货号引用："/2056254" 或 "/ 1951699"。
+	exportDiscountRefRe = regexp.MustCompile(`/\s*(\d{3,7})\b`)
 	// exportItemRe 匹配商品行：可选单字母前缀、3–7 位货号、品名（可空）、金额、可选 N/Y 后缀。
 	// 前缀不止 E：F 是 FSA 合格商品（如卫生用品、绷带），只认 E 会把整行漏掉（2026-11-14 实测）。
 	// 只有 E 算食品免税，其他字母只作前缀接受、不记标志。
@@ -45,7 +48,8 @@ var exportSkipPrefixes = []string{
 
 // ParseExportReceiptText 解析官网导出的小票文本（pdftotext 结果）。
 // 入口先去掉会员号（即使调用方忘了剥离，这里也再剥一次）。
-// 折扣行是整单立减：计入 DiscountCents / ReceiptDiscountCents，不挂给任何商品。
+// 折扣行带 /货号 时挂给对应商品（与照片解析一致）；没有货号引用时
+// 才是整单立减，计入 ReceiptDiscountCents，不挂给任何商品。
 func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 	text = stripMemberNumbers(text)
 	p := &ParsedReceipt{}
@@ -97,7 +101,8 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 	// 再逐行分类：数量行 → 折扣行 → 合计行 → 商品行 → 品名续行。
 	var order []string
 	byNo := map[string]*ParsedItem{}
-	discountTotal := 0
+	discountTotal := 0   // 全部折扣（含挂给商品的）
+	receiptDiscount := 0 // 无货号引用的整单立减部分
 	totalFromAmount := 0
 	pendingQty := 0
 	inItems := true // SUBTOTAL 之后是合计与页脚，不再有商品行
@@ -156,9 +161,22 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 			continue // 页脚：卡号、致谢、Whse 行等，一律忽略
 		}
 
-		// ---- 折扣行：整单立减，不挂给商品；后面的续行（如 SOC）也忽略 ----
+		// ---- 折扣行：带 /货号 时挂给对应商品；没有货号引用时是整单立减 ----
 		if m := exportDiscountRe.FindStringSubmatch(line); m != nil {
 			if amt, ok := parseMoneyToCents(m[1]); ok {
+				attached := false
+				if ref := exportDiscountRefRe.FindStringSubmatch(line); ref != nil {
+					if it, found := byNo[ref[1]]; found {
+						it.DiscountCents += amt
+						it.NetCents -= amt
+						attached = true
+					} else {
+						p.Warnings = append(p.Warnings, "折扣行引用货号 "+ref[1]+" 找不到对应商品，已按整单立减处理")
+					}
+				}
+				if !attached {
+					receiptDiscount += amt
+				}
 				discountTotal += amt
 			}
 			lastItem = nil
@@ -245,13 +263,17 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 			it.Name = no
 			p.Warnings = append(p.Warnings, "货号 "+no+" 的品名没读出来")
 		}
+		// 每件折扣 = 总折扣 / 件数（与照片解析一致，四舍五入，避免截断丢分）
+		if it.Qty > 0 {
+			it.DiscountCents = (it.DiscountCents + it.Qty/2) / it.Qty
+		}
 		p.Items = append(p.Items, *it)
 		p.GrossCents += it.Qty * it.UnitPriceCents
 	}
 	p.DiscountCents = discountTotal
-	p.ReceiptDiscountCents = discountTotal
-	if discountTotal > 0 {
-		p.Warnings = append(p.Warnings, "含整单立减 "+formatCents(discountTotal)+"（已计入对账，不挂给单件商品）")
+	p.ReceiptDiscountCents = receiptDiscount
+	if receiptDiscount > 0 {
+		p.Warnings = append(p.Warnings, "含整单立减 "+formatCents(receiptDiscount)+"（已计入对账，不挂给单件商品）")
 	}
 
 	// 总价兜底：TOTAL 行没读出时先用 AMOUNT，再用小计+税推导。

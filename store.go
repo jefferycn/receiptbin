@@ -183,11 +183,14 @@ func (s *Store) CountReceipts() (int, error) {
 	return n, err
 }
 
-// FindDuplicateReceipt 找同门店、同时间、同总价的小票（防重复导入）。
+// FindDuplicateReceipt 找同门店、同日、同总价的小票（防重复导入）。
+// 只比日期不比时刻：照片与 PDF 两种导入路径读出的时刻可能差 12 小时
+// （P7 行是 12 小时制），时刻对不上就会漏判；同一天同店同总价的两张
+// 不同小票几乎不可能，误判时确认框也能放行。
 func (s *Store) FindDuplicateReceipt(storeNo, purchasedAt string, totalCents int) (*Receipt, error) {
 	return scanReceipt(s.db.QueryRow(
 		`SELECT `+receiptColumns+` FROM receipts
-		 WHERE store_no = ? AND purchased_at = ? AND total_cents = ? LIMIT 1`,
+		 WHERE store_no = ? AND date(purchased_at) = date(?) AND total_cents = ? LIMIT 1`,
 		storeNo, purchasedAt, totalCents))
 }
 

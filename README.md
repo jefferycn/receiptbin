@@ -121,7 +121,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 ```bash
 go build ./...   # 需要 Go 1.27+
 go vet ./...
-go test ./...    # 42 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离、商品词典与 API、盯价清单 API、价格观察 API、月份列表
+go test ./...    # 45 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离、商品词典与 API、盯价清单 API、价格观察 API、月份列表、PDF 单件折扣、P7 时间陷阱、按日判重
 ```
 
 OCR 需要本机装 tesseract（`tesseract-ocr` + 英文数据），否则照片上传会报 OCR 失败；PDF 导入需要 `pdftotext`（poppler-utils），缺失时 PDF 上传会明确报错；其余功能不受影响。
@@ -130,5 +130,5 @@ OCR 需要本机装 tesseract（`tesseract-ocr` + 英文数据），否则照片
 
 - OCR 不是 100% 准：照片歪斜、反光、字迹模糊时，品名与个别金额可能读错，确认页就是用来纠错的；金额对不上账时保存按钮禁用，服务端保存时还会再校验一次。
 - iPhone 传 HEIC 照片时，Go 解码不了，会直接把原图喂给 tesseract 试一次（Alpine 的 tesseract 是否支持 HEIC 取决于 leptonica 编译选项，不保证）。
-- PDF 导入只认官网导出的 In-Warehouse 小票 PDF（有文本层）；扫描件 PDF 没有文本层，会提示改传照片。导出格式的折扣是整单立减，不挂给单件商品，入库时并入立减合计。
+- PDF 导入只认官网导出的 In-Warehouse 小票 PDF（有文本层）；扫描件 PDF 没有文本层，会提示改传照片。导出格式的折扣行带 `/货号` 时挂给对应商品，没有货号引用时才是整单立减，入库时并入立减合计。
 - 目前只有一个共用的家庭账号体系：首个注册为管理员，数据全家共享，不分用户；多用户管理以后再加。

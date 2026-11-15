@@ -214,6 +214,18 @@ func TestParseOCRGoFixture(t *testing.T) {
 	}
 }
 
+// P7 行是 12 小时制（如 04:40），即使在最后也不能当购买时间
+// （否则照片导入的时刻与 PDF 导入差 12 小时，重复导入也判不出来）。
+func TestParseSkipsP7Line(t *testing.T) {
+	p, err := ParseReceiptText(cleanFixture + "\nP7 09/12/2026 02:25\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.PurchasedAt != "2026-09-12 14:25" {
+		t.Errorf("购买时间 = %q，想要 2026-09-12 14:25（BP 行，不是 P7 行的 02:25）", p.PurchasedAt)
+	}
+}
+
 func TestReconcileMismatch(t *testing.T) {
 	p, err := ParseReceiptText(cleanFixture)
 	if err != nil {

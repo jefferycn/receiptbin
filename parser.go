@@ -152,8 +152,11 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 		}
 	}
 	// 日期取最后一个匹配：底部 "BP 09/12/2026 14:25" 是权威时间，
-	// 前面的时间戳行常被 OCR 读残。
+	// 前面的时间戳行常被 OCR 读残；P7 行是 12 小时制（如 04:40），不能用。
 	for _, line := range lines {
+		if strings.HasPrefix(strings.TrimSpace(line), "P7") {
+			continue
+		}
 		if m := dateRe.FindStringSubmatch(line); m != nil {
 			mo, _ := strconv.Atoi(m[1])
 			da, _ := strconv.Atoi(m[2])
