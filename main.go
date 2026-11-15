@@ -164,6 +164,9 @@ func (a *App) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/watchlist", a.requireAPIToken(a.addWatchAPIHandler))
 	mux.HandleFunc("DELETE /api/watchlist/{itemNo}", a.requireAPIToken(a.removeWatchAPIHandler))
 
+	// ---- 价格观察 API（v1.9）：同上，盯价检查查到的价格经这里写入 ----
+	mux.HandleFunc("POST /api/observations", a.requireAPIToken(a.addObservationsAPIHandler))
+
 	// 未匹配的路径：浏览器回首页，API 返回 404
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if strings.Contains(r.Header.Get("Accept"), "text/html") {

@@ -103,12 +103,25 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 curl -X DELETE -H "Authorization: Bearer $TOKEN" $BASE/api/watchlist/9000002
 ```
 
+## 价格观察 API（v1.9）
+
+盯价检查在应用外做（costco.com / Same-Day / warehouserunner），查到的价格经这个接口写入，观察的 source 记为 `watch`，与小票（receipt）、手动记价（manual）区分。写入后自动跑调价比对（30 天内高价购买 → price_drop 提醒）与盯价检查（低于上次观察 → watch_drop；达到目标价 → watch_target）。与最近一次观察同价同店时跳过不记，避免重复提醒。
+
+```bash
+# 批量写入价格观察（一次最多 100 条；observed_on 可空，默认今天；store 可空）
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"observations":[
+    {"item_no":"9000001","price_cents":1499,"store":"DANVILLE","observed_on":"2026-11-15"},
+    {"item_no":"9000002","price_cents":999}
+  ]}' $BASE/api/observations
+```
+
 ## 本地开发
 
 ```bash
 go build ./...   # 需要 Go 1.27+
 go vet ./...
-go test ./...    # 39 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离、商品词典与 API、盯价清单 API
+go test ./...    # 41 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离、商品词典与 API、盯价清单 API、价格观察 API
 ```
 
 OCR 需要本机装 tesseract（`tesseract-ocr` + 英文数据），否则照片上传会报 OCR 失败；PDF 导入需要 `pdftotext`（poppler-utils），缺失时 PDF 上传会明确报错；其余功能不受影响。

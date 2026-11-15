@@ -6,9 +6,11 @@ package main
 // 同渠道才行（店里买的只对照店里价）；申请时须有货且在促销期内；
 // .97 清仓价不参与。
 //
-// 价格来源只有两条（没有实时货架价接口，应用不爬、不轮询任何价格源）：
+// 价格来源有三条（应用本身不爬、不轮询任何价格源；查价在应用外做）：
 //   (a) 新小票入库：同货号在 30 天内有更高价购买记录 → price_drop 提醒；
-//   (b) 手动记价：用户在店里看到价格随手记，同样比对 30 天内购买记录。
+//   (b) 手动记价：用户在店里看到价格随手记，同样比对 30 天内购买记录；
+//   (c) 盯价检查：助手外部查价（costco.com / Same-Day / warehouserunner），
+//       经机器 API（POST /api/observations）写入观察，同样触发调价与盯价提醒。
 // 盯价清单另外看：观察价低于上次观察 → watch_drop；达到目标价 → watch_target。
 // 每月券册（Instant Savings PDF）匹配是 Phase 2，这里只留接口与页面提示。
 
@@ -34,6 +36,15 @@ func (a *App) checkReceiptAlerts(r *Receipt, items []ReceiptItem) int {
 func (a *App) checkManualPrice(itemNo, name string, priceCents int, store, date string) int {
 	n := a.checkPriceDrop(itemNo, name, priceCents, date+" 23:59", "")
 	n += a.observePrice(itemNo, priceCents, store, date, "manual", "")
+	return n
+}
+
+// checkWatchPrice 处理一次盯价检查写入的价格：同样比对 30 天内购买记录
+// + 盯价检查。来源是助手外部查价（costco.com / Same-Day / warehouserunner），
+// 经机器 API 写入，观察的 source 记为 "watch"。
+func (a *App) checkWatchPrice(itemNo, name string, priceCents int, store, date string) int {
+	n := a.checkPriceDrop(itemNo, name, priceCents, date+" 23:59", "")
+	n += a.observePrice(itemNo, priceCents, store, date, "watch", "")
 	return n
 }
 

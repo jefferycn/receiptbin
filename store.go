@@ -808,7 +808,7 @@ type Observation struct {
 	PriceCents int    `json:"price_cents"`
 	Store      string `json:"store"`
 	ObservedOn string `json:"observed_on"` // "2006-01-02"
-	Source     string `json:"source"`      // receipt / manual
+	Source     string `json:"source"`      // receipt / manual / watch
 	ReceiptID  string `json:"receipt_id,omitempty"`
 	CreatedAt  string `json:"created_at,omitempty"`
 }

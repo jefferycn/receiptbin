@@ -17,8 +17,9 @@ async function load() {
     const obs = w.last_obs;
     const obsLine = obs
       ? '上次 <span class="money">' + fmtMoney(obs.price_cents) + '</span> · ' + fmtDate(obs.observed_on) +
-        (obs.store ? ' · ' + esc(obs.store) : '') + (obs.source === 'manual' ? ' · 手动记价' : ' · 小票')
-      : '还没有价格记录：扫到它的小票、或手动记一次价后，这里会显示上次价格。';
+        (obs.store ? ' · ' + esc(obs.store) : '') +
+        (obs.source === 'manual' ? ' · 手动记价' : obs.source === 'watch' ? ' · 盯价检查' : ' · 小票')
+      : '还没有价格记录：下次盯价检查、扫到它的小票、或手动记一次价后，这里会显示上次价格。';
     const targetLine = w.target_cents != null
       ? '目标价 <span class="money">' + fmtMoney(w.target_cents) + '</span>' +
         (obs && obs.price_cents <= w.target_cents ? ' · <span class="good">已到价！</span>' : '')

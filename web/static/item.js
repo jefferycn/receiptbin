@@ -62,10 +62,10 @@ function drawTimeline(purchases, obs) {
     label: fmtDate(p.purchased_at) + ' 购买', manual: false,
   }));
   obs.forEach(o => {
-    // 小票观察与购买是同一价格，不重复画点（只画手动记价的点）
-    if (o.source === 'manual') pts.push({
+    // 小票观察与购买是同一价格，不重复画点（只画手动记价和盯价检查的点）
+    if (o.source === 'manual' || o.source === 'watch') pts.push({
       date: o.observed_on, price: o.price_cents,
-      label: fmtDate(o.observed_on) + ' 记价' + (o.store ? '（' + o.store + '）' : ''), manual: true,
+      label: fmtDate(o.observed_on) + (o.source === 'watch' ? ' 查价' : ' 记价') + (o.store ? '（' + o.store + '）' : ''), manual: true,
     });
   });
   pts.sort((a, b) => a.date < b.date ? -1 : 1);

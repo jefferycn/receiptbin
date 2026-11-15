@@ -113,8 +113,8 @@ CREATE TABLE IF NOT EXISTS watchlist (
 	created_at TEXT NOT NULL
 );
 
--- 价格观察记录：来源只有两条——receipt（新小票入库）与 manual（用户在店里看到随手记）。
--- 注意：没有实时货架价接口，应用不爬、不轮询任何价格源。
+-- 价格观察记录：来源有三条——receipt（新小票入库）、manual（用户在店里看到随手记）、
+-- watch（助手盯价检查经机器 API 写入）。应用本身不爬、不轮询任何价格源。
 CREATE TABLE IF NOT EXISTS price_observations (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
 	item_no TEXT NOT NULL,
