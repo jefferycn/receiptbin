@@ -13,7 +13,7 @@
 <title>小票详情 - ReceiptBin</title>
 <link rel="stylesheet" href="/static/app.css">
 </head>
-<body>
+<body data-back="/receipts">
 <header class="topbar">
   <a class="brand" href="/">ReceiptBin</a>
   <div class="topbar-actions">
@@ -31,7 +31,6 @@
   </div>
 </header>
 <main>
-  <p><a href="/receipts">← 全部小票</a></p>
   <div id="content"><p class="muted">加载中…</p></div>
   <a class="fab" href="/upload" aria-label="扫小票">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">

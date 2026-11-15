@@ -138,8 +138,12 @@ function confirmModal(title, body, okText, onOk) {
 }
 
 // ---------- 顶栏 ----------
-// 每页加载时调一次：⋯ 菜单开关、登出按钮。
+// 每页加载时调一次：⋯ 菜单开关、登出按钮、右滑返回。
+// 带防重复守卫：重复调用不得重复绑定（否则菜单点一次开关两次）。
+let topbarBound = false;
 async function initTopbar() {
+  if (topbarBound) return;
+  topbarBound = true;
   const menuBtn = document.getElementById('topMenuBtn');
   const menuPop = document.getElementById('topMenuPop');
   if (menuBtn && menuPop) {
@@ -156,6 +160,50 @@ async function initTopbar() {
     await api('/api/v1/logout', { method: 'POST' }).catch(() => {});
     location.href = '/login';
   };
+  initSwipeBack();
+}
+
+// ---------- 右滑返回 ----------
+// PWA 独立模式没有 Safari 的边缘右滑返回，自己实现：手指从左边缘
+// （32px 内）向右滑超过 80px（或快速滑过 40px），且纵向漂移小于 60px，
+// 就返回上一页。首页是根，不启用；弹窗打开时不启用。
+function initSwipeBack() {
+  if (location.pathname === '/') return;
+  const EDGE = 32, MIN_DX = 80, FAST_DX = 40, FAST_MS = 300, MAX_DY = 60;
+  let startX = 0, startY = 0, startT = 0, tracking = false, swiping = false;
+  document.addEventListener('touchstart', e => {
+    if (document.querySelector('.modal-backdrop')) { tracking = false; return; }
+    const t = e.touches[0];
+    tracking = t.clientX < EDGE;
+    swiping = false;
+    startX = t.clientX; startY = t.clientY; startT = Date.now();
+  }, { passive: true });
+  document.addEventListener('touchmove', e => {
+    if (!tracking) return;
+    const t = e.touches[0];
+    const dx = t.clientX - startX, dy = t.clientY - startY;
+    if (!swiping && dx > 12 && dx > Math.abs(dy) * 1.5) swiping = true;
+    if (swiping) e.preventDefault(); // 锁定为横滑，避免页面跟着滚动
+  }, { passive: false });
+  const cancel = () => { tracking = false; swiping = false; };
+  document.addEventListener('touchcancel', cancel, { passive: true });
+  document.addEventListener('touchend', e => {
+    if (!tracking) return;
+    tracking = false;
+    if (!swiping) return;
+    swiping = false;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - startX, dy = t.clientY - startY;
+    const fast = Date.now() - startT < FAST_MS && dx > FAST_DX;
+    if ((dx > MIN_DX || fast) && Math.abs(dy) < MAX_DY) goBack();
+  }, { passive: true });
+}
+
+// goBack：有历史就后退；没有历史时按页面声明的 data-back 兜底（如详情页回列表）。
+function goBack() {
+  if (history.length > 1) { history.back(); return; }
+  const fb = document.body.dataset.back;
+  if (fb) location.href = fb;
 }
 
 // ---------- 分类颜色（环形图与图例共用） ----------

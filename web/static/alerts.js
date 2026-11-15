@@ -26,7 +26,6 @@ async function load() {
       });
       toast(act === 'handled' ? '已标记处理' : '已忽略');
       load();
-      initTopbar(); // 刷新角标
     } catch (e) { toast(e.message); }
   }));
 }
