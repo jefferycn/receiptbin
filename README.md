@@ -52,7 +52,7 @@ go vet ./...
 go test ./...    # 23 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离
 ```
 
-OCR 需要本机装 tesseract（`tesseract-ocr` + 英文数据），否则照片上传会报 OCR 失败；PDF 导入需要 `pdftotext`（poppler），缺失时 PDF 上传会明确报错；其余功能不受影响。
+OCR 需要本机装 tesseract（`tesseract-ocr` + 英文数据），否则照片上传会报 OCR 失败；PDF 导入需要 `pdftotext`（poppler-utils），缺失时 PDF 上传会明确报错；其余功能不受影响。
 
 ## 已知限制
 

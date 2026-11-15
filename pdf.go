@@ -1,7 +1,7 @@
 package main
 
 // PDF 小票导入：读 Costco 官网导出的 In-Warehouse Receipt PDF。
-// 这类 PDF 自带文本层，不用 OCR：调 pdftotext（poppler）提文本，
+// 这类 PDF 自带文本层，不用 OCR：调 pdftotext（poppler-utils）提文本，
 // 再用 export_parser.go 的导出格式解析器解析。
 //
 // 隐私：导出的 PDF 里含会员号。提文本后立刻去掉会员号相关内容，
@@ -21,7 +21,7 @@ import (
 // pdfTimeout 是单次 pdftotext 的上限：纯提文本很快，60 秒绰绰有余。
 const pdfTimeout = 60 * time.Second
 
-// pdftotextBin 是 pdftotext 可执行文件名（PATH 里找；容器内由 apk 装 poppler 提供）。
+// pdftotextBin 是 pdftotext 可执行文件名（PATH 里找；容器内由 apk 装 poppler-utils 提供）。
 // 用变量而不用常量，方便测试时换成不存在的路径验证报错。
 var pdftotextBin = "pdftotext"
 

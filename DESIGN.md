@@ -42,7 +42,7 @@
 ### PDF 导入（v1.1 已做）
 
 - 来源：costco.com → Orders & Purchases → Warehouse 页签 → View Receipt，保存/打印为 PDF。PDF 自带文本层。
-- 提取：调 `pdftotext -layout`（容器里装 poppler）；缺失或无文本层时明确报错，让用户改传照片。不做渲染 + OCR 兜底。
+- 提取：调 `pdftotext -layout`（容器里装 poppler-utils）；缺失或无文本层时明确报错，让用户改传照片。不做渲染 + OCR 兜底。
 - 导出格式与纸质小票的不同：
   - 商品行后缀是 N/Y（Y=应税），E 前缀仍是食品免税；
   - 数量行 `2 @ 单价` 在商品行之前，商品行金额是小计，单价 = 小计 / 数量；
