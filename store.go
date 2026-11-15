@@ -160,8 +160,14 @@ type ReceiptItem struct {
 	StoreNo        string `json:"store_no,omitempty"`
 }
 
-const receiptColumns = `id, store, store_no, purchased_at, terminal_no, transaction_no,
-	subtotal_cents, tax_cents, total_cents, savings_cents, item_count, photo_path, raw_text, created_at`
+// receipts 表的列，与 scanReceipt 的扫描顺序一致。
+// 两处 SELECT（receiptColumns 与 receiptColumnsWithPrefix）共用这一个来源，
+// 避免改一处漏一处：v2.4.1 教训——前缀版漏了 terminal_no / transaction_no 两列，
+// ListReceipts 查出 12 列、scanReceipt 要扫 14 个字段，首页直接报数据库错误。
+var receiptColumnNames = []string{"id", "store", "store_no", "purchased_at", "terminal_no", "transaction_no",
+	"subtotal_cents", "tax_cents", "total_cents", "savings_cents", "item_count", "photo_path", "raw_text", "created_at"}
+
+var receiptColumns = strings.Join(receiptColumnNames, ", ")
 
 func scanReceipt(row interface{ Scan(...any) error }) (*Receipt, error) {
 	r := &Receipt{}
@@ -394,10 +400,8 @@ func (s *Store) ListReceipts(f ReceiptFilter) ([]*Receipt, int, error) {
 }
 
 func receiptColumnsWithPrefix(p string) string {
-	cols := []string{"id", "store", "store_no", "purchased_at", "subtotal_cents", "tax_cents",
-		"total_cents", "savings_cents", "item_count", "photo_path", "raw_text", "created_at"}
 	var b strings.Builder
-	for i, c := range cols {
+	for i, c := range receiptColumnNames {
 		if i > 0 {
 			b.WriteString(", ")
 		}

@@ -147,6 +147,41 @@ func TestFindDuplicateReceiptByTxn(t *testing.T) {
 	}
 }
 
+// ListReceipts 回归测试（v2.4.1 教训）：前缀版列清单漏了 terminal_no /
+// transaction_no 两列，scanReceipt 扫 14 个字段只拿到 12 列，首页报数据库错误。
+// 之前没有任何测试调过 ListReceipts，这条必须补上。
+func TestListReceipts(t *testing.T) {
+	app := testApp(t)
+	rec := &Receipt{ID: "lr1", Store: "FREMONT", StoreNo: "999", PurchasedAt: "2026-09-12 14:25",
+		TerminalNo: "6", TransactionNo: "487",
+		SubtotalCents: 1000, TaxCents: 88, TotalCents: 1088, ItemCount: 1}
+	items := []ReceiptItem{{ItemNo: "3000001", Name: "TEST ITEM", Qty: 1,
+		UnitPriceCents: 1000, NetCents: 1000, Category: "日用品"}}
+	if err := app.store.CreateReceipt(rec, items); err != nil {
+		t.Fatalf("建小票失败：%v", err)
+	}
+	// 按门店号筛，避开种子数据
+	list, total, err := app.store.ListReceipts(ReceiptFilter{StoreNo: "999"})
+	if err != nil {
+		t.Fatalf("ListReceipts 失败：%v", err)
+	}
+	if total != 1 || len(list) != 1 {
+		t.Fatalf("应查到 1 张小票，total=%d len=%d", total, len(list))
+	}
+	got := list[0]
+	if got.ID != "lr1" || got.TotalCents != 1088 || got.TerminalNo != "6" || got.TransactionNo != "487" {
+		t.Errorf("查出的小票字段不对：%+v", got)
+	}
+	// 不带筛选也应正常（首页最近小票就是这么查的）
+	all, total, err := app.store.ListReceipts(ReceiptFilter{PerPage: 10})
+	if err != nil {
+		t.Fatalf("无筛选 ListReceipts 失败：%v", err)
+	}
+	if total < 2 || len(all) < 2 {
+		t.Errorf("无筛选应至少查到 2 张（种子 + 新建），total=%d len=%d", total, len(all))
+	}
+}
+
 func TestReplaceReceipt(t *testing.T) {
 	app := testApp(t)
 	old := &Receipt{ID: "old1", Store: "FREMONT", StoreNo: "999", PurchasedAt: "2026-09-12 14:25",
