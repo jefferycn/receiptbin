@@ -194,6 +194,8 @@ func (s *Store) FindDuplicateReceipt(storeNo, purchasedAt string, totalCents int
 // CreateReceipt 写入小票 + 商品行 + 分类记忆（同一事务）。
 // 调用方已做对账校验；这里只负责落库。
 func (s *Store) CreateReceipt(r *Receipt, items []ReceiptItem) error {
+	// 门店名统一大写（最后一道关口：确认页手改、种子数据都走这里）。
+	r.Store = strings.ToUpper(strings.TrimSpace(r.Store))
 	tx, err := s.db.Begin()
 	if err != nil {
 		return err
@@ -340,12 +342,14 @@ func receiptColumnsWithPrefix(p string) string {
 }
 
 // ListStores 返回去过的所有门店（筛选下拉用）。
+// 按门店号分组（门店号才是门店的唯一身份），店名统一大写显示，
+// 旧数据里同一门店号的大小写不同写法只出现一次。
 func (s *Store) ListStores() ([]struct {
 	Store   string `json:"store"`
 	StoreNo string `json:"store_no"`
 }, error) {
 	rows, err := s.db.Query(
-		`SELECT DISTINCT store, store_no FROM receipts ORDER BY store`)
+		`SELECT UPPER(store) AS store, store_no FROM receipts GROUP BY store_no ORDER BY store`)
 	if err != nil {
 		return nil, err
 	}

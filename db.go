@@ -174,6 +174,11 @@ func openStore(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	// v1.6 迁移：旧数据里门店名大小写不一（如 Danville 与 DANVILLE），统一大写。
+	if err := migrateUppercaseStores(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db, dataDir: dataDir}, nil
 }
 
@@ -200,6 +205,15 @@ func migrateAddItemNameZh(db *sql.DB) error {
 		return err
 	}
 	_, err = db.Exec(`ALTER TABLE receipt_items ADD COLUMN name_zh TEXT NOT NULL DEFAULT ''`)
+	return err
+}
+
+// migrateUppercaseStores 把旧小票与旧记价的门店名统一成大写（幂等：已大写的行不动）。
+func migrateUppercaseStores(db *sql.DB) error {
+	if _, err := db.Exec(`UPDATE receipts SET store = UPPER(store) WHERE store != UPPER(store)`); err != nil {
+		return err
+	}
+	_, err := db.Exec(`UPDATE price_observations SET store = UPPER(store) WHERE store != UPPER(store)`)
 	return err
 }
 

@@ -74,8 +74,8 @@ BP 09/12/2026 14:25
 // assertReceipt 是三个夹具共用的断言：12 行聚合商品、5 个足球、全部金额。
 func assertReceipt(t *testing.T, p *ParsedReceipt) {
 	t.Helper()
-	if p.Store != "Fremont" || p.StoreNo != "123" {
-		t.Errorf("门店 = %q #%q，想要 Fremont #123", p.Store, p.StoreNo)
+	if p.Store != "FREMONT" || p.StoreNo != "123" {
+		t.Errorf("门店 = %q #%q，想要 FREMONT #123（店名统一大写）", p.Store, p.StoreNo)
 	}
 	if p.PurchasedAt != "2026-09-12 14:25" {
 		t.Errorf("购买时间 = %q，想要 2026-09-12 14:25", p.PurchasedAt)

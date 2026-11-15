@@ -353,7 +353,7 @@ func (a *App) createReceiptHandler(w http.ResponseWriter, r *http.Request, u *Us
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
 		return
 	}
-	req.Store = strings.TrimSpace(req.Store)
+	req.Store = strings.ToUpper(strings.TrimSpace(req.Store))
 	req.StoreNo = strings.TrimSpace(req.StoreNo)
 	req.PurchasedAt = strings.TrimSpace(req.PurchasedAt)
 	if req.Store == "" || req.PurchasedAt == "" {
@@ -646,7 +646,7 @@ func (a *App) createObservationHandler(w http.ResponseWriter, r *http.Request, u
 		return
 	}
 	req.ItemNo = strings.TrimSpace(req.ItemNo)
-	req.Store = strings.TrimSpace(req.Store)
+	req.Store = strings.ToUpper(strings.TrimSpace(req.Store))
 	if req.ItemNo == "" || req.PriceCents <= 0 {
 		writeErr(w, http.StatusBadRequest, "货号和价格不能为空")
 		return

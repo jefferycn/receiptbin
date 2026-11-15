@@ -55,7 +55,8 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 	for _, line := range lines {
 		if p.Store == "" {
 			if m := storeRe.FindStringSubmatch(line); m != nil && !strings.Contains(line, "#:") {
-				p.Store = strings.TrimSpace(m[1])
+				// 门店名统一大写（与照片解析一致，否则同一门店被当成两个店）。
+				p.Store = strings.ToUpper(strings.TrimSpace(m[1]))
 				p.StoreNo = m[2]
 			}
 		}
@@ -65,11 +66,11 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 			}
 		}
 	}
-	// 门店兜底：页眉没读出时用页脚 "Whse: 663" 的门店号，店名先用 Costco 占位。
+	// 门店兜底：页眉没读出时用页脚 "Whse: 663" 的门店号，店名先用 COSTCO 占位。
 	if p.Store == "" {
 		for _, line := range lines {
 			if m := exportWhseRe.FindStringSubmatch(line); m != nil {
-				p.Store = "Costco"
+				p.Store = "COSTCO"
 				p.StoreNo = m[1]
 				p.Warnings = append(p.Warnings, "只读出门店号 "+m[1]+"，门店名请核对")
 				break

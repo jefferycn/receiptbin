@@ -138,7 +138,9 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 				// 排除 "App#"、"OP#" 这类带冒号的假匹配（storeRe 要求 # 前有空格，
 				// App# 紧贴着 #，本来就不会匹配；这里再防一手冒号）。
 				if !strings.Contains(line, "#:") {
-					p.Store = strings.TrimSpace(m[1])
+					// 门店名统一大写：照片 OCR 读出 Danville、PDF 导出是 DANVILLE，
+					// 不归一会被当成两个店（2026-11-14 实测）。
+					p.Store = strings.ToUpper(strings.TrimSpace(m[1]))
 					p.StoreNo = m[2]
 				}
 			}
