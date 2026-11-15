@@ -35,6 +35,8 @@ CREATE TABLE IF NOT EXISTS receipts (
 	store TEXT NOT NULL DEFAULT '',
 	store_no TEXT NOT NULL DEFAULT '',
 	purchased_at TEXT NOT NULL,
+	terminal_no TEXT NOT NULL DEFAULT '',
+	transaction_no TEXT NOT NULL DEFAULT '',
 	subtotal_cents INTEGER NOT NULL DEFAULT 0,
 	tax_cents INTEGER NOT NULL DEFAULT 0,
 	total_cents INTEGER NOT NULL DEFAULT 0,
@@ -47,6 +49,7 @@ CREATE TABLE IF NOT EXISTS receipts (
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_purchased ON receipts(purchased_at DESC);
 CREATE INDEX IF NOT EXISTS idx_receipts_store_date ON receipts(store_no, purchased_at, total_cents);
+CREATE INDEX IF NOT EXISTS idx_receipts_txn ON receipts(store_no, terminal_no, transaction_no);
 
 CREATE TABLE IF NOT EXISTS receipt_items (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,6 +182,11 @@ func openStore(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	// v2.4 迁移：给旧库的 receipts 补收银台号与交易号两列（判重用，新库已有）。
+	if err := migrateAddTxnColumns(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db, dataDir: dataDir}, nil
 }
 
@@ -206,6 +214,38 @@ func migrateAddItemNameZh(db *sql.DB) error {
 	}
 	_, err = db.Exec(`ALTER TABLE receipt_items ADD COLUMN name_zh TEXT NOT NULL DEFAULT ''`)
 	return err
+}
+
+// migrateAddTxnColumns 给旧库的 receipts 补 terminal_no / transaction_no 两列
+// （新库已有，跳过；旧数据这两列为空，判重时走总价兜底）。
+func migrateAddTxnColumns(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(receipts)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		have[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	for _, col := range []string{"terminal_no", "transaction_no"} {
+		if !have[col] {
+			if _, err := db.Exec(`ALTER TABLE receipts ADD COLUMN ` + col + ` TEXT NOT NULL DEFAULT ''`); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // migrateUppercaseStores 把旧小票与旧记价的门店名统一成大写（幂等：已大写的行不动）。

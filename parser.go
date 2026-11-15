@@ -44,7 +44,9 @@ type ParsedItem struct {
 type ParsedReceipt struct {
 	Store         string       `json:"store"`
 	StoreNo       string       `json:"store_no"`
-	PurchasedAt   string       `json:"purchased_at"` // "2006-01-02 15:04"
+	PurchasedAt   string       `json:"purchased_at"`   // "2006-01-02 15:04"
+	TerminalNo    string       `json:"terminal_no"`    // 收银台号（Trm），页脚或交易行读出，读不出为空
+	TransactionNo string       `json:"transaction_no"` // 交易号（Trn），同上；与门店+日期合起来是小票的身份
 	Items         []ParsedItem `json:"items"`
 	GrossCents    int          `json:"gross_cents"`
 	DiscountCents int          `json:"discount_cents"` // 折扣合计：单件折扣 + 整单立减
@@ -73,7 +75,27 @@ var (
 	storeRe       = regexp.MustCompile(`([A-Za-z][A-Za-z .]*?)\s+#(\d{1,3})\b`)
 	dateRe        = regexp.MustCompile(`(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})`)
 	itemsSoldRe   = regexp.MustCompile(`ITEMS SOLD\s*[:=]?\s*(\d+)`)
+	// txnFooterRe 匹配页脚交易号："Whse: 21 Trm: 6 Trn: 487 OPT: 676"。
+	txnFooterRe = regexp.MustCompile(`Trm:\s*(\d+)\s+Trn:\s*(\d+)`)
+	// txnLineRe 匹配交易行："11/14/2026 16:40 21 6 487 676"（日期后依次是门店、收银台、交易号、操作员）。
+	txnLineRe = regexp.MustCompile(`\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}\s+\d{1,3}\s+(\d{1,3})\s+(\d{1,6})\s+\d{1,4}\b`)
 )
+
+// extractTxnRef 从小票文本里找收银台号与交易号：先找带标签的页脚，
+// 找不到再找交易行。照片裁掉页脚或 OCR 读残时返回空串，调用方用总价判重兜底。
+func extractTxnRef(lines []string) (terminal, transaction string) {
+	for _, line := range lines {
+		if m := txnFooterRe.FindStringSubmatch(line); m != nil {
+			return m[1], m[2]
+		}
+	}
+	for _, line := range lines {
+		if m := txnLineRe.FindStringSubmatch(line); m != nil {
+			return m[1], m[2]
+		}
+	}
+	return "", ""
+}
 
 // normalizeAmountText 修正常见的金额 OCR 误读：
 // "5 !00" → "5.00"（! 是 . 的误读），"1O.99" → "10.99"（字母 O 是 0 的误读）。
@@ -169,6 +191,9 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 			}
 		}
 	}
+
+	// 收银台号与交易号：页脚或交易行读出，判重用（读不出时为空）。
+	p.TerminalNo, p.TransactionNo = extractTxnRef(lines)
 
 	// 再逐行分类：折扣行 → 合计行 → 商品行。
 	var order []string // 货号首次出现顺序

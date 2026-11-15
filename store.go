@@ -125,7 +125,9 @@ type Receipt struct {
 	ID            string `json:"id"`
 	Store         string `json:"store"`
 	StoreNo       string `json:"store_no"`
-	PurchasedAt   string `json:"purchased_at"` // "2006-01-02 15:04"
+	PurchasedAt   string `json:"purchased_at"`   // "2006-01-02 15:04"
+	TerminalNo    string `json:"terminal_no"`    // 收银台号（Trm）
+	TransactionNo string `json:"transaction_no"` // 交易号（Trn）；与门店+日期合起来是小票的身份
 	SubtotalCents int    `json:"subtotal_cents"`
 	TaxCents      int    `json:"tax_cents"`
 	TotalCents    int    `json:"total_cents"`
@@ -158,14 +160,14 @@ type ReceiptItem struct {
 	StoreNo        string `json:"store_no,omitempty"`
 }
 
-const receiptColumns = `id, store, store_no, purchased_at, subtotal_cents, tax_cents,
-	total_cents, savings_cents, item_count, photo_path, raw_text, created_at`
+const receiptColumns = `id, store, store_no, purchased_at, terminal_no, transaction_no,
+	subtotal_cents, tax_cents, total_cents, savings_cents, item_count, photo_path, raw_text, created_at`
 
 func scanReceipt(row interface{ Scan(...any) error }) (*Receipt, error) {
 	r := &Receipt{}
-	err := row.Scan(&r.ID, &r.Store, &r.StoreNo, &r.PurchasedAt, &r.SubtotalCents,
-		&r.TaxCents, &r.TotalCents, &r.SavingsCents, &r.ItemCount, &r.PhotoPath,
-		&r.RawText, &r.CreatedAt)
+	err := row.Scan(&r.ID, &r.Store, &r.StoreNo, &r.PurchasedAt, &r.TerminalNo,
+		&r.TransactionNo, &r.SubtotalCents, &r.TaxCents, &r.TotalCents, &r.SavingsCents,
+		&r.ItemCount, &r.PhotoPath, &r.RawText, &r.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, errNotFound
 	}
@@ -183,34 +185,40 @@ func (s *Store) CountReceipts() (int, error) {
 	return n, err
 }
 
-// FindDuplicateReceipt 找同门店、同日、同总价的小票（防重复导入）。
+// FindDuplicateReceipt 找重复小票（防重复导入）。
+// 先按交易号判：同店同日同收银台同交易号就是同一张，哪怕总价在确认页
+// 被改过也能对上；再按总价判：老数据或照片裁掉页脚时没有交易号。
 // 只比日期不比时刻：照片与 PDF 两种导入路径读出的时刻可能差 12 小时
-// （P7 行是 12 小时制），时刻对不上就会漏判；同一天同店同总价的两张
-// 不同小票几乎不可能，误判时确认框也能放行。
-func (s *Store) FindDuplicateReceipt(storeNo, purchasedAt string, totalCents int) (*Receipt, error) {
+// （P7 行是 12 小时制），时刻对不上就会漏判。
+// 同一天同店只比日期不够：一天去两次就是两张不同的小票，必须有总价
+// 或交易号做区分；误判时确认框也能放行。
+func (s *Store) FindDuplicateReceipt(storeNo, purchasedAt string, totalCents int, terminalNo, transactionNo string) (*Receipt, error) {
+	if terminalNo != "" && transactionNo != "" {
+		if dup, err := scanReceipt(s.db.QueryRow(
+			`SELECT `+receiptColumns+` FROM receipts
+			 WHERE store_no = ? AND date(purchased_at) = date(?)
+			   AND terminal_no = ? AND transaction_no = ? LIMIT 1`,
+			storeNo, purchasedAt, terminalNo, transactionNo)); err == nil {
+			return dup, nil
+		}
+	}
 	return scanReceipt(s.db.QueryRow(
 		`SELECT `+receiptColumns+` FROM receipts
 		 WHERE store_no = ? AND date(purchased_at) = date(?) AND total_cents = ? LIMIT 1`,
 		storeNo, purchasedAt, totalCents))
 }
 
-// CreateReceipt 写入小票 + 商品行 + 分类记忆（同一事务）。
-// 调用方已做对账校验；这里只负责落库。
-func (s *Store) CreateReceipt(r *Receipt, items []ReceiptItem) error {
-	// 门店名统一大写（最后一道关口：确认页手改、种子数据都走这里）。
-	r.Store = strings.ToUpper(strings.TrimSpace(r.Store))
-	tx, err := s.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+// insertReceiptTx 在事务里写入小票 + 商品行 + 分类记忆（不提交，调用方管事务）。
+func insertReceiptTx(tx *sql.Tx, r *Receipt, items []ReceiptItem) error {
 	now := nowStr()
-	_, err = tx.Exec(
-		`INSERT INTO receipts (id, store, store_no, purchased_at, subtotal_cents, tax_cents,
-			total_cents, savings_cents, item_count, photo_path, raw_text, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		r.ID, r.Store, r.StoreNo, r.PurchasedAt, r.SubtotalCents, r.TaxCents,
-		r.TotalCents, r.SavingsCents, r.ItemCount, r.PhotoPath, r.RawText, now, now)
+	_, err := tx.Exec(
+		`INSERT INTO receipts (id, store, store_no, purchased_at, terminal_no, transaction_no,
+			subtotal_cents, tax_cents, total_cents, savings_cents, item_count, photo_path,
+			raw_text, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		r.ID, r.Store, r.StoreNo, r.PurchasedAt, r.TerminalNo, r.TransactionNo,
+		r.SubtotalCents, r.TaxCents, r.TotalCents, r.SavingsCents, r.ItemCount,
+		r.PhotoPath, r.RawText, now, now)
 	if err != nil {
 		return err
 	}
@@ -230,11 +238,65 @@ func (s *Store) CreateReceipt(r *Receipt, items []ReceiptItem) error {
 		// 记住分类：下次同货号自动填
 		_, err = tx.Exec(
 			`INSERT INTO item_categories (item_no, category, updated_at) VALUES (?, ?, ?)
-			 ON CONFLICT(item_no) DO UPDATE SET category = excluded.category, updated_at = excluded.updated_at`,
+			ON CONFLICT(item_no) DO UPDATE SET category = excluded.category, updated_at = excluded.updated_at`,
 			it.ItemNo, it.Category, now)
 		if err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// deleteReceiptTx 在事务里删小票：商品行由外键级联删除；相关提醒与价格观察
+// 一起删掉。照片文件由调用方删（数据库不知道文件是否还在）。
+func deleteReceiptTx(tx *sql.Tx, id string) error {
+	if _, err := tx.Exec(`DELETE FROM alerts WHERE old_receipt_id = ? OR new_receipt_id = ?`, id, id); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`DELETE FROM price_observations WHERE receipt_id = ?`, id); err != nil {
+		return err
+	}
+	res, err := tx.Exec(`DELETE FROM receipts WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+// CreateReceipt 写入小票 + 商品行 + 分类记忆（同一事务）。
+// 调用方已做对账校验；这里只负责落库。
+func (s *Store) CreateReceipt(r *Receipt, items []ReceiptItem) error {
+	// 门店名统一大写（最后一道关口：确认页手改、种子数据都走这里）。
+	r.Store = strings.ToUpper(strings.TrimSpace(r.Store))
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := insertReceiptTx(tx, r, items); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ReplaceReceipt 用新小票覆盖旧小票：同一事务里先删旧的，再写入新的；
+// 任何一步失败都回滚，旧小票不会丢。照片文件由调用方处理。
+func (s *Store) ReplaceReceipt(oldID string, r *Receipt, items []ReceiptItem) error {
+	r.Store = strings.ToUpper(strings.TrimSpace(r.Store))
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := deleteReceiptTx(tx, oldID); err != nil {
+		return err
+	}
+	if err := insertReceiptTx(tx, r, items); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -393,7 +455,7 @@ func (s *Store) ListMonths() ([]string, error) {
 	return out, rows.Err()
 }
 
-// DeleteReceipt 删小票：商品行由外键级联删除；相关提醒一起删掉；
+// DeleteReceipt 删小票：商品行由外键级联删除；相关提醒与价格观察一起删掉；
 // 照片文件由调用方删（数据库不知道文件是否还在）。
 func (s *Store) DeleteReceipt(id string) error {
 	tx, err := s.db.Begin()
@@ -401,19 +463,8 @@ func (s *Store) DeleteReceipt(id string) error {
 		return err
 	}
 	defer tx.Rollback()
-	if _, err := tx.Exec(`DELETE FROM alerts WHERE old_receipt_id = ? OR new_receipt_id = ?`, id, id); err != nil {
+	if err := deleteReceiptTx(tx, id); err != nil {
 		return err
-	}
-	if _, err := tx.Exec(`DELETE FROM price_observations WHERE receipt_id = ?`, id); err != nil {
-		return err
-	}
-	res, err := tx.Exec(`DELETE FROM receipts WHERE id = ?`, id)
-	if err != nil {
-		return err
-	}
-	n, _ := res.RowsAffected()
-	if n == 0 {
-		return errNotFound
 	}
 	return tx.Commit()
 }

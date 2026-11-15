@@ -11,6 +11,8 @@ let uploadId = '';
 let rawText = '';
 let isPDF = false;
 let receiptDiscount = 0; // 整单立减（分），PDF 导出才有，不挂给单件商品
+let terminalNo = ''; // 收银台号（Trm），判重用；读不出为空
+let transactionNo = ''; // 交易号（Trn），同上
 let items = []; // {item_no, name, name_zh, qty, unit_price_cents, discount_cents, taxable, food_exempt, category}
 let categories = {};
 
@@ -76,6 +78,8 @@ async function handleFile(file) {
   rawText = d.raw_text || '';
   isPDF = !!d.is_pdf;
   receiptDiscount = (d.receipt && d.receipt.receipt_discount_cents) || 0;
+  terminalNo = (d.receipt && d.receipt.terminal_no) || '';
+  transactionNo = (d.receipt && d.receipt.transaction_no) || '';
   showConfirm(d.receipt, d.problems || []);
 }
 
@@ -85,6 +89,8 @@ $('manualBtn').addEventListener('click', () => {
   rawText = '';
   isPDF = false;
   receiptDiscount = 0;
+  terminalNo = '';
+  transactionNo = '';
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
   showConfirm({
@@ -242,12 +248,26 @@ $('saveBtn').addEventListener('click', async () => {
     await saveReceipt(false);
   } catch (e) {
     if (e.status === 409) {
-      // 重复小票：让用户确认是否仍要保存
+      // 重复小票：覆盖原有小票，或仍要保存一份新的
       btn.disabled = false;
-      confirmModal('已经有一张相同的小票', e.message + '确定仍要保存这张小票吗？', '仍要保存', async () => {
+      const dupId = (e.data && e.data.duplicate_id) || '';
+      const m = openModal('<h3>已经有一张相同的小票</h3><p>' + esc(e.message) + '</p>' +
+        '<p class="muted" style="font-size:14px">覆盖会删除旧的那张（包括它的提醒与价格记录），用这次导入的替换它；解析错了重导时选这个。</p>' +
+        '<div style="display:flex;flex-direction:column;gap:8px;margin-top:16px">' +
+        '<button class="btn primary big" id="mReplace">覆盖原有小票</button>' +
+        '<button class="btn big" id="mForce">仍要保存一份新的</button>' +
+        '<button class="btn big" id="mCancelDup">取消</button></div>');
+      m.querySelector('#mCancelDup').onclick = closeModal;
+      m.querySelector('#mReplace').onclick = async () => {
+        closeModal();
         btn.disabled = true;
-        try { await saveReceipt(true); } catch (e2) { toast(e2.message); btn.disabled = false; }
-      });
+        try { await saveReceipt(true, dupId); } catch (e2) { toast(e2.message); btn.disabled = false; }
+      };
+      m.querySelector('#mForce').onclick = async () => {
+        closeModal();
+        btn.disabled = true;
+        try { await saveReceipt(true, ''); } catch (e2) { toast(e2.message); btn.disabled = false; }
+      };
       return;
     }
     toast(e.message);
@@ -255,7 +275,7 @@ $('saveBtn').addEventListener('click', async () => {
   }
 });
 
-async function saveReceipt(force) {
+async function saveReceipt(force, replaceId) {
   let qtyTotal = 0, savings = receiptDiscount;
   for (const it of items) { qtyTotal += it.qty; savings += it.qty * it.discount_cents; }
   const body = {
@@ -263,6 +283,8 @@ async function saveReceipt(force) {
     store: $('fStore').value.trim(),
     store_no: $('fStoreNo').value.trim(),
     purchased_at: $('fDate').value.trim(),
+    terminal_no: terminalNo,
+    transaction_no: transactionNo,
     subtotal_cents: dollarsToCents($('fSubtotal').value),
     tax_cents: dollarsToCents($('fTax').value),
     total_cents: dollarsToCents($('fTotal').value),
@@ -272,10 +294,10 @@ async function saveReceipt(force) {
     raw_text: rawText,
     items: items,
     force: force,
+    replace_id: replaceId || '',
   };
   const d = await api('/api/v1/receipts', { method: 'POST', body: JSON.stringify(body) });
-  toast(d.alerts_created > 0
-    ? '已保存，并生成 ' + d.alerts_created + ' 条提醒'
-    : '已保存');
+  toast((d.replaced_id ? '已覆盖原有小票' : '已保存') +
+    (d.alerts_created > 0 ? '，并生成 ' + d.alerts_created + ' 条提醒' : ''));
   location.href = '/receipt/' + d.id;
 }

@@ -81,6 +81,10 @@ func TestParseExportReceipt(t *testing.T) {
 	if p.PurchasedAt != "2026-08-15 16:40" {
 		t.Errorf("购买时间 = %q，想要 2026-08-15 16:40", p.PurchasedAt)
 	}
+	// 交易号从页脚读出：Whse: 456 Trm: 3 Trn: 123 OPT: 789
+	if p.TerminalNo != "3" || p.TransactionNo != "123" {
+		t.Errorf("收银台/交易号 = %q/%q，想要 3/123", p.TerminalNo, p.TransactionNo)
+	}
 	if len(p.Items) != 6 {
 		t.Fatalf("商品行 = %d，想要 6（折扣行不是商品）", len(p.Items))
 	}

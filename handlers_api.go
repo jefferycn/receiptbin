@@ -331,14 +331,17 @@ func (a *App) uploadHandler(w http.ResponseWriter, r *http.Request, u *User) {
 }
 
 // createReceiptHandler 保存确认后的小票（前端传完整编辑结果）。
-// 服务端再做一次对账校验，不通过拒绝入库；重复小票（同店同时间同总价）
-// 返回 409，前端确认后带 force=true 重试。
+// 服务端再做一次对账校验，不通过拒绝入库；重复小票（同店同日同交易号，
+// 或同店同日同总价）返回 409，前端确认后带 force=true 重试，或带
+// replace_id=<重复小票 id> 覆盖原有小票（同一事务里删旧写新）。
 func (a *App) createReceiptHandler(w http.ResponseWriter, r *http.Request, u *User) {
 	var req struct {
 		UploadID             string       `json:"upload_id"`
 		Store                string       `json:"store"`
 		StoreNo              string       `json:"store_no"`
 		PurchasedAt          string       `json:"purchased_at"`
+		TerminalNo           string       `json:"terminal_no"`
+		TransactionNo        string       `json:"transaction_no"`
 		SubtotalCents        int          `json:"subtotal_cents"`
 		TaxCents             int          `json:"tax_cents"`
 		TotalCents           int          `json:"total_cents"`
@@ -348,6 +351,7 @@ func (a *App) createReceiptHandler(w http.ResponseWriter, r *http.Request, u *Us
 		RawText              string       `json:"raw_text"`
 		Items                []ParsedItem `json:"items"`
 		Force                bool         `json:"force"`
+		ReplaceID            string       `json:"replace_id"` // 覆盖保存时要替换掉的旧小票 id
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
@@ -432,14 +436,24 @@ func (a *App) createReceiptHandler(w http.ResponseWriter, r *http.Request, u *Us
 	if req.ItemCount == 0 {
 		req.ItemCount = qtyTotal
 	}
-	if !req.Force {
-		if dup, err := a.store.FindDuplicateReceipt(req.StoreNo, req.PurchasedAt, req.TotalCents); err == nil {
+	if !req.Force && req.ReplaceID == "" {
+		if dup, err := a.store.FindDuplicateReceipt(req.StoreNo, req.PurchasedAt, req.TotalCents, req.TerminalNo, req.TransactionNo); err == nil {
 			writeJSON(w, http.StatusConflict, map[string]any{
 				"error":        "已有一张相同的小票（" + dup.Store + " " + dup.PurchasedAt + "，" + formatCents(dup.TotalCents) + "），可能重复导入",
 				"duplicate_id": dup.ID,
 			})
 			return
 		}
+	}
+	// 覆盖保存：被替换的旧小票必须存在；照片文件等事务提交后再删。
+	var oldPhoto string
+	if req.ReplaceID != "" {
+		old, err := a.store.GetReceipt(req.ReplaceID)
+		if err != nil {
+			writeErr(w, http.StatusNotFound, "要覆盖的小票不存在，可能已被删除")
+			return
+		}
+		oldPhoto = old.PhotoPath
 	}
 	id := randBase62(12)
 	photoPath := ""
@@ -452,19 +466,34 @@ func (a *App) createReceiptHandler(w http.ResponseWriter, r *http.Request, u *Us
 	}
 	rec := &Receipt{
 		ID: id, Store: req.Store, StoreNo: req.StoreNo, PurchasedAt: req.PurchasedAt,
+		TerminalNo: req.TerminalNo, TransactionNo: req.TransactionNo,
 		SubtotalCents: req.SubtotalCents, TaxCents: req.TaxCents, TotalCents: req.TotalCents,
 		SavingsCents: discountTotal, ItemCount: req.ItemCount,
 		// 入库前再剥一次会员号（纵深防御：raw_text 是前端回传的，不信任它）
 		PhotoPath: photoPath, RawText: stripMemberNumbers(req.RawText),
 	}
-	if err := a.store.CreateReceipt(rec, items); err != nil {
+	if req.ReplaceID != "" {
+		if err := a.store.ReplaceReceipt(req.ReplaceID, rec, items); err != nil {
+			writeErr(w, http.StatusInternalServerError, "覆盖小票失败")
+			return
+		}
+	} else if err := a.store.CreateReceipt(rec, items); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存小票失败")
 		return
 	}
+	// 旧照片文件在事务提交后删（新附件已是新 id 下的文件，不会误删）。
+	if oldPhoto != "" {
+		os.Remove(filepath.Join(a.store.dataDir, filepath.FromSlash(oldPhoto)))
+	}
+
 	alertsCreated := a.checkReceiptAlerts(rec, items)
-	writeJSON(w, http.StatusCreated, map[string]any{
+	resp := map[string]any{
 		"id": id, "alerts_created": alertsCreated,
-	})
+	}
+	if req.ReplaceID != "" {
+		resp["replaced_id"] = req.ReplaceID
+	}
+	writeJSON(w, http.StatusCreated, resp)
 }
 
 func itemsAsParsed(items []ReceiptItem) []ParsedItem {

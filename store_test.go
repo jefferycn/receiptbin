@@ -96,17 +96,103 @@ func TestFindDuplicateReceiptMatchesByDay(t *testing.T) {
 	// 用 999 号店避开种子数据；insertRawReceipt 的时间是 2026-09-12 14:25
 	insertRawReceipt(t, app, "d1", "FREMONT", "999")
 	// 同日不同时刻（照片 P7 行 12 小时制读出的 04:40）也应判重
-	dup, err := app.store.FindDuplicateReceipt("999", "2026-09-12 04:40", 0)
+	dup, err := app.store.FindDuplicateReceipt("999", "2026-09-12 04:40", 0, "", "")
 	if err != nil || dup == nil || dup.ID != "d1" {
 		t.Errorf("同日不同时刻应判重，dup=%v err=%v", dup, err)
 	}
 	// 不同日期不判重
-	if dup, err := app.store.FindDuplicateReceipt("999", "2026-09-13 14:25", 0); err == nil {
+	if dup, err := app.store.FindDuplicateReceipt("999", "2026-09-13 14:25", 0, "", ""); err == nil {
 		t.Errorf("不同日期不应判重，dup=%v", dup)
 	}
 	// 同日同总价但不同门店不判重
-	if dup, err := app.store.FindDuplicateReceipt("998", "2026-09-12 14:25", 0); err == nil {
+	if dup, err := app.store.FindDuplicateReceipt("998", "2026-09-12 14:25", 0, "", ""); err == nil {
 		t.Errorf("不同门店不应判重，dup=%v", dup)
+	}
+}
+
+// insertRawReceiptTxn 写一行带收银台号与交易号的小票（判重测试用）。
+func insertRawReceiptTxn(t *testing.T, app *App, id, store, storeNo, terminal, transaction string) {
+	t.Helper()
+	_, err := app.store.db.Exec(
+		`INSERT INTO receipts (id, store, store_no, purchased_at, terminal_no, transaction_no, created_at, updated_at)
+		 VALUES (?, ?, ?, '2026-09-12 14:25', ?, ?, '2026-09-12 14:25', '2026-09-12 14:25')`,
+		id, store, storeNo, terminal, transaction)
+	if err != nil {
+		t.Fatalf("插入测试小票失败：%v", err)
+	}
+}
+
+func TestFindDuplicateReceiptByTxn(t *testing.T) {
+	app := testApp(t)
+	insertRawReceiptTxn(t, app, "x1", "FREMONT", "999", "6", "487")
+	// 交易号对上就是同一张，哪怕总价在确认页被改过（0 → 9999）
+	dup, err := app.store.FindDuplicateReceipt("999", "2026-09-12 16:40", 9999, "6", "487")
+	if err != nil || dup == nil || dup.ID != "x1" {
+		t.Errorf("交易号对上应判重，dup=%v err=%v", dup, err)
+	}
+	// 交易号不同、总价相同：仍按总价判重（老数据没有交易号时靠总价兜底）
+	dup, err = app.store.FindDuplicateReceipt("999", "2026-09-12 16:40", 0, "6", "488")
+	if err != nil || dup == nil || dup.ID != "x1" {
+		t.Errorf("交易号不同但总价相同应判重，dup=%v err=%v", dup, err)
+	}
+	// 交易号与总价都不同：不判重
+	if dup, err := app.store.FindDuplicateReceipt("999", "2026-09-12 16:40", 9999, "6", "488"); err == nil {
+		t.Errorf("交易号与总价都不同不应判重，dup=%v", dup)
+	}
+	// 不同日期、交易号相同：不判重（交易号每天从头编）
+	if dup, err := app.store.FindDuplicateReceipt("999", "2026-09-13 16:40", 9999, "6", "487"); err == nil {
+		t.Errorf("不同日期不应判重，dup=%v", dup)
+	}
+}
+
+func TestReplaceReceipt(t *testing.T) {
+	app := testApp(t)
+	old := &Receipt{ID: "old1", Store: "FREMONT", StoreNo: "999", PurchasedAt: "2026-09-12 14:25",
+		SubtotalCents: 1000, TaxCents: 88, TotalCents: 1088, ItemCount: 1}
+	oldItems := []ReceiptItem{{ItemNo: "3000001", Name: "OLD ITEM", Qty: 1,
+		UnitPriceCents: 1000, NetCents: 1000, Category: "日用品"}}
+	if err := app.store.CreateReceipt(old, oldItems); err != nil {
+		t.Fatalf("建旧小票失败：%v", err)
+	}
+	// 旧小票挂一条价格观察，覆盖后应随旧小票一起删掉
+	if _, err := app.store.AddObservation(&Observation{ItemNo: "3000001", PriceCents: 1000,
+		Store: "FREMONT", ObservedOn: "2026-09-12", Source: "receipt", ReceiptID: "old1"}); err != nil {
+		t.Fatalf("建旧观察失败：%v", err)
+	}
+	newRec := &Receipt{ID: "new1", Store: "FREMONT", StoreNo: "999", PurchasedAt: "2026-09-12 14:25",
+		TerminalNo: "6", TransactionNo: "487",
+		SubtotalCents: 2000, TaxCents: 175, TotalCents: 2175, ItemCount: 1}
+	newItems := []ReceiptItem{{ItemNo: "3000002", Name: "NEW ITEM", Qty: 1,
+		UnitPriceCents: 2000, NetCents: 2000, Category: "生鲜"}}
+	if err := app.store.ReplaceReceipt("old1", newRec, newItems); err != nil {
+		t.Fatalf("覆盖失败：%v", err)
+	}
+	if _, err := app.store.GetReceipt("old1"); err == nil {
+		t.Errorf("旧小票应已被删掉")
+	}
+	got, err := app.store.GetReceipt("new1")
+	if err != nil {
+		t.Fatalf("新小票读不出来：%v", err)
+	}
+	if got.TotalCents != 2175 || got.TransactionNo != "487" {
+		t.Errorf("新小票总价/交易号 = %d/%q，想要 2175/487", got.TotalCents, got.TransactionNo)
+	}
+	gotItems, err := app.store.GetReceiptItems("new1")
+	if err != nil || len(gotItems) != 1 || gotItems[0].ItemNo != "3000002" {
+		t.Errorf("新小票商品 = %v，想要 1 件 3000002", gotItems)
+	}
+	// 旧观察已删
+	obs, _ := app.store.LatestObservation("3000001")
+	if obs != nil && obs.ReceiptID == "old1" {
+		t.Errorf("旧小票的价格观察应随覆盖删掉")
+	}
+	// 覆盖不存在的小票应报错，且新小票不能入库
+	bad := &Receipt{ID: "new2", Store: "FREMONT", StoreNo: "999", PurchasedAt: "2026-09-12 14:25"}
+	if err := app.store.ReplaceReceipt("missing", bad, newItems); err == nil {
+		t.Errorf("覆盖不存在的小票应报错")
+	}
+	if _, err := app.store.GetReceipt("new2"); err == nil {
+		t.Errorf("覆盖失败时新小票不应入库（事务应回滚）")
 	}
 }
 

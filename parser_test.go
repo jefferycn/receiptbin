@@ -226,6 +226,28 @@ func TestParseSkipsP7Line(t *testing.T) {
 	}
 }
 
+// 交易号从页脚读出（Whse/Trm/Trn 行），是小票的身份标识，判重用。
+func TestParseTxnRefFromFooter(t *testing.T) {
+	p, err := ParseReceiptText(cleanFixture + "\nWhse: 123 Trm: 6 Trn: 487 OPT: 676\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TerminalNo != "6" || p.TransactionNo != "487" {
+		t.Errorf("收银台/交易号 = %q/%q，想要 6/487", p.TerminalNo, p.TransactionNo)
+	}
+}
+
+// 页脚被裁掉时从交易行读出（日期后依次是门店、收银台、交易号、操作员）。
+func TestParseTxnRefFromTxnLine(t *testing.T) {
+	p, err := ParseReceiptText(cleanFixture + "\n09/12/2026 14:25 123 6 487 676\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TerminalNo != "6" || p.TransactionNo != "487" {
+		t.Errorf("收银台/交易号 = %q/%q，想要 6/487", p.TerminalNo, p.TransactionNo)
+	}
+}
+
 func TestReconcileMismatch(t *testing.T) {
 	p, err := ParseReceiptText(cleanFixture)
 	if err != nil {

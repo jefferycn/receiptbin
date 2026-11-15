@@ -98,6 +98,9 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 		}
 	}
 
+	// 收银台号与交易号：页脚或交易行读出，判重用（读不出时为空）。
+	p.TerminalNo, p.TransactionNo = extractTxnRef(lines)
+
 	// 再逐行分类：数量行 → 折扣行 → 合计行 → 商品行 → 品名续行。
 	var order []string
 	byNo := map[string]*ParsedItem{}
