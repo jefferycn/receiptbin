@@ -210,6 +210,6 @@ function goBack() {
 const CATEGORY_COLORS = {
   '生鲜': '#2fa84f', '肉类海鲜': '#e31837', '乳制品/饮品': '#f5a623',
   '烘焙/干货': '#b07d4f', '日用品': '#005daa', '厨房用品': '#7b61c9',
-  '宠物': '#e67e22', '运动': '#00a3a3', '家居': '#8a8a8e', '其他': '#c0c0c8',
+  '宠物': '#e67e22', '运动': '#00a3a3', '家居': '#8a8a8e', '礼品卡': '#e84393', '其他': '#c0c0c8',
 };
 function categoryColor(c) { return CATEGORY_COLORS[c] || '#c0c0c8'; }

@@ -131,7 +131,7 @@ CREATE INDEX IF NOT EXISTS idx_obs_item_date ON price_observations(item_no, obse
 // Categories 是分类集合（DESIGN.md 定稿）。"其他" 为默认分类。
 var Categories = []string{
 	"生鲜", "肉类海鲜", "乳制品/饮品", "烘焙/干货",
-	"日用品", "厨房用品", "宠物", "运动", "家居", "其他",
+	"日用品", "厨房用品", "宠物", "运动", "家居", "礼品卡", "其他",
 }
 
 func validCategory(c string) bool {

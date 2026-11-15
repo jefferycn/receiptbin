@@ -68,3 +68,13 @@ func TestMigrateUppercaseStores(t *testing.T) {
 		t.Fatalf("迁移第二次失败：%v", err)
 	}
 }
+
+func TestValidCategoryGiftCard(t *testing.T) {
+	// v1.7 新增分类：礼品卡（用户要求）；"其他" 仍为默认分类，留在最后一位
+	if !validCategory("礼品卡") {
+		t.Errorf("礼品卡 应为合法分类")
+	}
+	if Categories[len(Categories)-1] != "其他" {
+		t.Errorf("最后一个分类应为 其他，实际 %q", Categories[len(Categories)-1])
+	}
+}
