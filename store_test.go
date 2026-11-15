@@ -4,6 +4,8 @@ package main
 // 夹具全是虚构的示例门店名，不含任何真实购物记录。
 
 import (
+	"database/sql"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -193,6 +195,62 @@ func TestReplaceReceipt(t *testing.T) {
 	}
 	if _, err := app.store.GetReceipt("new2"); err == nil {
 		t.Errorf("覆盖失败时新小票不应入库（事务应回滚）")
+	}
+}
+
+// 旧库升级回归测试（v2.4 实测教训）：用没有 terminal_no / transaction_no
+// 两列的旧表结构建库，openStore 必须成功启动并补齐列与索引，而不是崩溃。
+// 新库测试测不出这个问题——新库建表时列已存在，索引能直接建好。
+func TestOpenStoreUpgradesOldDB(t *testing.T) {
+	dir := t.TempDir()
+	dsn := fmt.Sprintf("file:%s/receiptbin.db?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)", dir)
+	db, err := sql.Open("sqlite", dsn)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 旧版 receipts 表：没有 terminal_no / transaction_no 两列
+	_, err = db.Exec(`CREATE TABLE receipts (
+		id TEXT PRIMARY KEY, store TEXT NOT NULL DEFAULT '', store_no TEXT NOT NULL DEFAULT '',
+		purchased_at TEXT NOT NULL, subtotal_cents INTEGER NOT NULL DEFAULT 0,
+		tax_cents INTEGER NOT NULL DEFAULT 0, total_cents INTEGER NOT NULL DEFAULT 0,
+		savings_cents INTEGER NOT NULL DEFAULT 0, item_count INTEGER NOT NULL DEFAULT 0,
+		photo_path TEXT NOT NULL DEFAULT '', raw_text TEXT NOT NULL DEFAULT '',
+		created_at TEXT NOT NULL, updated_at TEXT NOT NULL
+	)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	store, err := openStore(dir)
+	if err != nil {
+		t.Fatalf("旧库升级失败：%v", err)
+	}
+	defer store.Close()
+	rows, err := store.db.Query(`PRAGMA table_info(receipts)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			t.Fatal(err)
+		}
+		have[name] = true
+	}
+	if !have["terminal_no"] || !have["transaction_no"] {
+		t.Errorf("迁移后应有 terminal_no / transaction_no 列，实际 %v", have)
+	}
+	// 索引也应建好
+	var idxName string
+	err = store.db.QueryRow(
+		`SELECT name FROM sqlite_master WHERE type='index' AND name='idx_receipts_txn'`).Scan(&idxName)
+	if err != nil {
+		t.Errorf("迁移后应有 idx_receipts_txn 索引：%v", err)
 	}
 }
 

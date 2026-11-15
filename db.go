@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS receipts (
 );
 CREATE INDEX IF NOT EXISTS idx_receipts_purchased ON receipts(purchased_at DESC);
 CREATE INDEX IF NOT EXISTS idx_receipts_store_date ON receipts(store_no, purchased_at, total_cents);
-CREATE INDEX IF NOT EXISTS idx_receipts_txn ON receipts(store_no, terminal_no, transaction_no);
+-- 注意：terminal_no / transaction_no 上的索引不能放这里：旧库还没有这两列，
+-- 建索引会在迁移之前先失败、导致启动崩溃（v2.4 实测）。索引由迁移函数建。
 
 CREATE TABLE IF NOT EXISTS receipt_items (
 	id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -245,7 +246,9 @@ func migrateAddTxnColumns(db *sql.DB) error {
 			}
 		}
 	}
-	return nil
+	// 交易号索引：列补齐之后才能建（放 schema 里会在旧库上先失败导致启动崩溃）。
+	_, err = db.Exec(`CREATE INDEX IF NOT EXISTS idx_receipts_txn ON receipts(store_no, terminal_no, transaction_no)`)
+	return err
 }
 
 // migrateUppercaseStores 把旧小票与旧记价的门店名统一成大写（幂等：已大写的行不动）。
