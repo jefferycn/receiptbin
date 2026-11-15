@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ReceiptBin">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<title>提醒 - ReceiptBin</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">ReceiptBin</a>
+  <div class="topbar-actions">
+    <a class="icon-btn" href="/upload" aria-label="扫小票">＋</a>
+    <div class="topbar-menu">
+      <button class="icon-btn" id="topMenuBtn" aria-label="菜单">⋯</button>
+      <div class="menu-pop" id="topMenuPop" hidden>
+        <a class="menu-item" href="/receipts">小票</a>
+        <a class="menu-item" href="/search">搜索</a>
+        <a class="menu-item" href="/watchlist">盯价</a>
+        <a class="menu-item" href="/alerts">提醒<span class="badge-inline" data-alert-badge hidden></span></a>
+        <a class="menu-item" href="/settings">设置</a>
+        <button class="menu-item danger" id="logoutBtn">登出</button>
+      </div>
+    </div>
+  </div>
+</header>
+<main>
+  <h1>提醒</h1>
+  <p class="muted">Costco 调价规则：购买后 30 天内自己降价可退差价，带小票去会员柜台办；同渠道才行，.97 清仓价不算。</p>
+  <div class="seg-bar" id="statusSeg">
+    <button class="seg-btn selected" data-status="open">未处理</button>
+    <button class="seg-btn" data-status="handled">已处理</button>
+    <button class="seg-btn" data-status="dismissed">已忽略</button>
+  </div>
+  <div id="list"><p class="muted">加载中…</p></div>
+  <p class="muted" style="margin-top:24px">每月券册（Instant Savings）匹配尚未接入，Phase 2 再做；目前提醒只来自新小票比价、手动记价与盯价。</p>
+</main>
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+<script src="/static/alerts.js"></script>
+</body>
+</html>

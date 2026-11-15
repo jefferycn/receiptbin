@@ -1,0 +1,22 @@
+# ReceiptBin 部署示例（群晖 / 任意 Docker 主机）。
+# 首次启动后打开 http://<主机>:11026 注册首个管理员；
+# 示例种子小票会在空库时自动导入，开箱即有数据可看。
+services:
+  receiptbin:
+    build: .
+    image: receiptbin:1.0
+    container_name: receiptbin
+    restart: unless-stopped
+    ports:
+      - "11026:8080"
+    volumes:
+      # 全部数据都在这里：receiptbin.db + receipts/（小票照片），备份拷走整个目录即可
+      - ./data:/data
+    environment:
+      - DATA_DIR=/data
+      - PORT=8080
+      # 反代 HTTPS 时保持 true；仅本地 HTTP 直连调试时改为 false
+      - SECURE_COOKIES=true
+    # Go 本身常驻约 10–25MB，但 tesseract OCR 大图时峰值能到 200–400MB，
+    # 512MB 上限是给 OCR 留的；太小会在识别时被 OOM 杀掉
+    mem_limit: 512m

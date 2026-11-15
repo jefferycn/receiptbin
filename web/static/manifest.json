@@ -1,0 +1,1 @@
+{"background_color":"#ffffff","description":"Costco 购物记录：小票、花费、调价提醒","display":"standalone","icons":[{"sizes":"192x192","src":"/static/icon-192.png","type":"image/png"},{"sizes":"512x512","src":"/static/icon-512.png","type":"image/png"}],"name":"ReceiptBin","short_name":"ReceiptBin","start_url":"/","theme_color":"#ffffff"}

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ReceiptBin">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<title>ReceiptBin</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">ReceiptBin</a>
+  <div class="topbar-actions">
+    <a class="icon-btn" href="/upload" aria-label="扫小票">＋</a>
+    <div class="topbar-menu">
+      <button class="icon-btn" id="topMenuBtn" aria-label="菜单">⋯</button>
+      <div class="menu-pop" id="topMenuPop" hidden>
+        <a class="menu-item" href="/receipts">小票</a>
+        <a class="menu-item" href="/search">搜索</a>
+        <a class="menu-item" href="/watchlist">盯价</a>
+        <a class="menu-item" href="/alerts">提醒<span class="badge-inline" data-alert-badge hidden></span></a>
+        <a class="menu-item" href="/settings">设置</a>
+        <button class="menu-item danger" id="logoutBtn">登出</button>
+      </div>
+    </div>
+  </div>
+</header>
+<main class="home">
+  <div id="alertBanner"></div>
+  <div class="stat-grid" id="statGrid">
+    <div class="stat-card"><div class="stat-num">—</div><div class="stat-label">本月</div></div>
+    <div class="stat-card"><div class="stat-num">—</div><div class="stat-label">今年</div></div>
+    <div class="stat-card"><div class="stat-num">—</div><div class="stat-label">累计</div></div>
+  </div>
+  <div class="card chart-card">
+    <h2>每月花费</h2>
+    <p class="muted">点柱子看那月的小票</p>
+    <div id="monthChart"><p class="muted">加载中…</p></div>
+  </div>
+  <div class="card chart-card">
+    <h2>分类花费</h2>
+    <div class="seg-bar" id="periodSeg">
+      <button class="seg-btn" data-period="month">本月</button>
+      <button class="seg-btn selected" data-period="year">今年</button>
+      <button class="seg-btn" data-period="all">全部</button>
+    </div>
+    <p class="muted">点扇形或图例，看该分类的小票（商品实付，不含税）</p>
+    <div id="catChart"><p class="muted">加载中…</p></div>
+    <div class="legend" id="catLegend"></div>
+  </div>
+  <h2>最近小票</h2>
+  <div id="recentList"><p class="muted">加载中…</p></div>
+  <a class="fab" href="/upload" aria-label="扫小票">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/>
+      <path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/>
+      <path d="M7 12h10"/>
+    </svg>
+  </a>
+</main>
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+<script src="/static/home.js"></script>
+</body>
+</html>

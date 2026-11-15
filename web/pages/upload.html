@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ReceiptBin">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<title>扫小票 - ReceiptBin</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">ReceiptBin</a>
+  <div class="topbar-actions">
+    <a class="icon-btn" href="/upload" aria-label="扫小票">＋</a>
+    <div class="topbar-menu">
+      <button class="icon-btn" id="topMenuBtn" aria-label="菜单">⋯</button>
+      <div class="menu-pop" id="topMenuPop" hidden>
+        <a class="menu-item" href="/receipts">小票</a>
+        <a class="menu-item" href="/search">搜索</a>
+        <a class="menu-item" href="/watchlist">盯价</a>
+        <a class="menu-item" href="/alerts">提醒<span class="badge-inline" data-alert-badge hidden></span></a>
+        <a class="menu-item" href="/settings">设置</a>
+        <button class="menu-item danger" id="logoutBtn">登出</button>
+      </div>
+    </div>
+  </div>
+</header>
+<main>
+  <h1>扫小票</h1>
+
+  <div id="stepUpload">
+    <div class="dropzone" id="dropzone">
+      <input type="file" id="photoInput" accept="image/*">
+      <p><strong>点按拍照或选照片</strong></p>
+      <p>把整张小票拍进画面，字迹越正、光线越匀，识别越准。识别要几秒到一分钟。</p>
+      <img id="previewImg" class="preview-img" hidden alt="小票预览">
+    </div>
+    <p id="ocrStatus" class="muted" style="text-align:center;margin-top:12px"></p>
+    <p class="muted" style="text-align:center"><button class="linkbtn" id="manualBtn">OCR 读不出来？手动录入</button></p>
+  </div>
+
+  <div id="stepConfirm" hidden>
+    <div class="card">
+      <div style="display:flex;gap:12px;align-items:flex-start">
+        <img id="confirmThumb" class="receipt-photo" style="max-width:120px;margin:0;cursor:zoom-in" hidden alt="小票照片">
+        <div style="flex:1">
+          <h2 style="margin:0 0 4px">核对小票</h2>
+          <p class="muted" style="margin:0">识别结果可能有错，保存前请核对。金额对不上账时无法保存。</p>
+        </div>
+      </div>
+      <div id="warnBox"></div>
+      <div class="field"><label>门店</label>
+        <div style="display:flex;gap:8px">
+          <input type="text" id="fStore" placeholder="Fremont" style="flex:2">
+          <input type="text" id="fStoreNo" placeholder="店号 21" style="flex:1" inputmode="numeric">
+        </div>
+      </div>
+      <div class="field"><label>购买时间</label><input type="text" id="fDate" placeholder="2026-09-12 14:25"></div>
+      <div class="field"><label>合计金额</label>
+        <div class="totals-edit">
+          <div><label>小计</label><input type="text" id="fSubtotal" inputmode="decimal"></div>
+          <div><label>税</label><input type="text" id="fTax" inputmode="decimal"></div>
+          <div><label>总计</label><input type="text" id="fTotal" inputmode="decimal"></div>
+        </div>
+      </div>
+      <p id="reconStatus"></p>
+    </div>
+
+    <h2>商品（<span id="itemCountLabel">0</span> 行）</h2>
+    <div id="itemList"></div>
+    <p><button class="btn" id="addItemBtn">＋ 加一件商品</button></p>
+    <div class="btn-row" style="margin-top:16px">
+      <button class="btn primary big" id="saveBtn" style="flex:1">保存小票</button>
+    </div>
+    <p style="text-align:center;margin-top:12px"><button class="linkbtn" id="cancelBtn">取消，重新拍</button></p>
+  </div>
+</main>
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+<script src="/static/upload.js"></script>
+</body>
+</html>

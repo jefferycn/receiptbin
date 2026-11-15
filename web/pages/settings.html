@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ReceiptBin">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<title>设置 - ReceiptBin</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/">ReceiptBin</a>
+  <div class="topbar-actions">
+    <a class="icon-btn" href="/upload" aria-label="扫小票">＋</a>
+    <div class="topbar-menu">
+      <button class="icon-btn" id="topMenuBtn" aria-label="菜单">⋯</button>
+      <div class="menu-pop" id="topMenuPop" hidden>
+        <a class="menu-item" href="/receipts">小票</a>
+        <a class="menu-item" href="/search">搜索</a>
+        <a class="menu-item" href="/watchlist">盯价</a>
+        <a class="menu-item" href="/alerts">提醒<span class="badge-inline" data-alert-badge hidden></span></a>
+        <a class="menu-item" href="/settings">设置</a>
+        <button class="menu-item danger" id="logoutBtn">登出</button>
+      </div>
+    </div>
+  </div>
+</header>
+<main>
+  <h1>设置</h1>
+  <div class="card">
+    <h2>账号</h2>
+    <p class="muted" id="meLine">加载中…</p>
+    <form id="pwForm">
+      <div class="field"><label>当前密码</label><input type="password" id="pwCurrent" autocomplete="current-password"></div>
+      <div class="field"><label>新密码（最短 8 位）</label><input type="password" id="pwNew" autocomplete="new-password"></div>
+      <div class="field"><label>确认新密码</label><input type="password" id="pwNew2" autocomplete="new-password"></div>
+      <p class="err" id="pwErr"></p>
+      <button class="btn primary" type="submit">改密码（改完需重新登录）</button>
+    </form>
+  </div>
+  <div class="card">
+    <h2>数据</h2>
+    <p class="muted" id="dataLine">加载中…</p>
+    <p class="muted">备份：把服务器上 data/ 目录整个拷走即可（数据库 + 小票照片都在里面）。</p>
+  </div>
+  <div class="card">
+    <h2>关于</h2>
+    <p class="muted">ReceiptBin v1.0：小票拍照 OCR 入库，按分类统计花费，30 天调价提醒，特定商品盯价。</p>
+    <p class="muted">价格只来自你扫的小票和手动记价，没有实时货架价接口。每月券册匹配是 Phase 2。</p>
+  </div>
+</main>
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+<script src="/static/settings.js"></script>
+</body>
+</html>

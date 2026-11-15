@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="ReceiptBin">
+<meta name="theme-color" content="#ffffff">
+<link rel="manifest" href="/static/manifest.json">
+<link rel="apple-touch-icon" href="/static/icon-180.png">
+<title>登录 - ReceiptBin</title>
+<link rel="stylesheet" href="/static/app.css">
+</head>
+<body>
+<main>
+  <h1>ReceiptBin</h1>
+  <p class="muted">Costco 购物记录：小票、花费、调价提醒。</p>
+  <form id="loginForm">
+    <div class="field"><label>用户名</label><input type="text" id="username" autocomplete="username" autofocus></div>
+    <div class="field"><label>密码</label><input type="password" id="password" autocomplete="current-password"></div>
+    <p class="err" id="err"></p>
+    <button class="btn primary big" type="submit">登录</button>
+  </form>
+  <p class="muted" id="setupHint" hidden>还没有任何用户？<a href="/register">注册首个管理员</a></p>
+</main>
+<div id="toast"></div>
+<script src="/static/app.js"></script>
+<script src="/static/auth.js"></script>
+</body>
+</html>
