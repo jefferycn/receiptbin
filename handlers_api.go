@@ -515,10 +515,11 @@ func (a *App) listReceiptsHandler(w http.ResponseWriter, r *http.Request, u *Use
 		return
 	}
 	stores, _ := a.store.ListStores()
+	months, _ := a.store.ListMonths()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"receipts": receipts, "total": total,
 		"page": f.Page, "per_page": f.PerPage,
-		"stores": stores, "categories": Categories,
+		"stores": stores, "categories": Categories, "months": months,
 	})
 }
 

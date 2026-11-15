@@ -28,12 +28,6 @@ async function load() {
 
   drawMonthChart(d.by_month || []);
   drawCategoryChart(d.by_category || []);
-
-  const recent = d.recent_receipts || [];
-  document.getElementById('recentList').innerHTML = recent.length === 0
-    ? '<div class="empty">还没有小票，点右下角扫一张吧。</div>'
-    : recent.map(r => receiptRow(r)).join('') +
-      '<p class="stats"><a href="/receipts">查看全部小票 →</a></p>';
 }
 
 function statCard(cents, label) {
@@ -48,6 +42,50 @@ function receiptRow(r) {
     '<div class="row-sub">' + fmtDate(r.purchased_at) + ' · ' + r.item_count + ' 件' +
     (r.savings_cents > 0 ? ' · 立减 ' + fmtMoney(r.savings_cents) : '') + '</div></div>';
 }
+
+// ---------- 最近小票：无限滚动 ----------
+// 首页只拉最近小票，往下滚快到底时自动加载下一页，直到全部拉完。
+// 注意：加载动画与结束标记用 .show 类控制显示，不要用 hidden 属性——
+// .loadmore 的 display:flex 会盖掉 hidden，演示里踩过这个坑。
+const RECENT_PER_PAGE = 10;
+let recentPage = 1, recentTotal = -1, recentLoading = false, recentDone = false;
+
+async function loadRecent() {
+  if (recentLoading || recentDone) return;
+  recentLoading = true;
+  const spin = document.getElementById('recentSpin');
+  spin.classList.add('show');
+  let d;
+  try {
+    d = await api('/api/v1/receipts?page=' + recentPage + '&per_page=' + RECENT_PER_PAGE);
+  } catch (e) {
+    toast(e.message);
+    spin.classList.remove('show');
+    recentLoading = false;
+    return;
+  }
+  recentTotal = d.total;
+  const list = document.getElementById('recentList');
+  if (recentPage === 1) {
+    list.innerHTML = d.receipts.length === 0
+      ? '<div class="empty">还没有小票，点右下角扫一张吧。</div>'
+      : d.receipts.map(r => receiptRow(r)).join('');
+  } else {
+    list.insertAdjacentHTML('beforeend', d.receipts.map(r => receiptRow(r)).join(''));
+  }
+  recentPage++;
+  spin.classList.remove('show');
+  recentLoading = false;
+  if ((recentPage - 1) * RECENT_PER_PAGE >= recentTotal) {
+    recentDone = true;
+    if (recentTotal > 0) document.getElementById('recentEnd').classList.add('show');
+  }
+}
+
+new IntersectionObserver(entries => {
+  if (entries[0].isIntersecting) loadRecent();
+}, { rootMargin: '200px' }).observe(document.getElementById('recentSentinel'));
+loadRecent();
 
 // ---------- 月花费柱状图 ----------
 function drawMonthChart(months) {

@@ -69,6 +69,28 @@ func TestMigrateUppercaseStores(t *testing.T) {
 	}
 }
 
+func TestListMonthsReturnsDistinctDesc(t *testing.T) {
+	app := testApp(t)
+	// 三张小票分属两个月（虚构日期），其中一个月两张
+	for _, r := range []struct{ id, at string }{
+		{"m1", "2026-09-12 14:25"}, {"m2", "2026-11-14 16:40"}, {"m3", "2026-09-04 10:00"},
+	} {
+		_, err := app.store.db.Exec(
+			`INSERT INTO receipts (id, store, store_no, purchased_at, created_at, updated_at)
+			 VALUES (?, 'FREMONT', '123', ?, ?, ?)`, r.id, r.at, r.at, r.at)
+		if err != nil {
+			t.Fatalf("插入测试小票失败：%v", err)
+		}
+	}
+	months, err := app.store.ListMonths()
+	if err != nil {
+		t.Fatalf("ListMonths 失败：%v", err)
+	}
+	if len(months) != 2 || months[0] != "2026-11" || months[1] != "2026-09" {
+		t.Errorf("月份 = %v，想要 [2026-11 2026-09]（去重、倒序）", months)
+	}
+}
+
 func TestValidCategoryGiftCard(t *testing.T) {
 	// v1.7 新增分类：礼品卡（用户要求）；"其他" 仍为默认分类，留在最后一位
 	if !validCategory("礼品卡") {

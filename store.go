@@ -371,6 +371,25 @@ func (s *Store) ListStores() ([]struct {
 	return out, rows.Err()
 }
 
+// ListMonths 返回有小票的月份列表（YYYY-MM，倒序），供小票页筛选器用。
+func (s *Store) ListMonths() ([]string, error) {
+	rows, err := s.db.Query(
+		`SELECT DISTINCT strftime('%Y-%m', purchased_at) AS m FROM receipts ORDER BY m DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []string{}
+	for rows.Next() {
+		var m string
+		if err := rows.Scan(&m); err != nil {
+			return nil, err
+		}
+		out = append(out, m)
+	}
+	return out, rows.Err()
+}
+
 // DeleteReceipt 删小票：商品行由外键级联删除；相关提醒一起删掉；
 // 照片文件由调用方删（数据库不知道文件是否还在）。
 func (s *Store) DeleteReceipt(id string) error {

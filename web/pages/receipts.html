@@ -52,11 +52,11 @@
 </aside>
 <main>
   <h1>小票</h1>
-  <div class="filters">
-    <input type="month" id="fMonth" aria-label="月份">
-    <select id="fCategory" aria-label="分类"><option value="">全部分类</option></select>
-    <select id="fStore" aria-label="门店"><option value="">全部门店</option></select>
-    <button class="mini-btn" id="clearBtn">清除筛选</button>
+  <div class="chips" id="chips">
+    <button class="fchip" data-filter="month"><span class="label">全部月份</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    <button class="fchip" data-filter="category"><span class="label">全部分类</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    <button class="fchip" data-filter="store"><span class="label">全部门店</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg></button>
+    <button class="clear-all" id="clearAll" hidden>清除全部</button>
   </div>
   <div id="list"><p class="muted">加载中…</p></div>
   <div class="pager" id="pager"></div>
@@ -69,6 +69,12 @@
     </svg>
   </a>
 </main>
+<div class="sheet-scrim" id="sheetScrim"></div>
+<div class="sheet" id="sheet" role="dialog" aria-label="选择">
+  <div class="handle"></div>
+  <h3 id="sheetTitle">选择</h3>
+  <div id="sheetOpts"></div>
+</div>
 <div id="toast"></div>
 <script src="/static/app.js"></script>
 <script src="/static/receipts.js"></script>
