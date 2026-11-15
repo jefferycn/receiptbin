@@ -25,7 +25,7 @@ async function load() {
       : '未设目标价，只看降价';
     return '<div class="card">' +
       '<div class="row-head" style="display:flex;gap:8px;align-items:center">' +
-      '<strong style="flex:1;min-width:0">' + esc(w.name || w.item_no) + '</strong>' +
+      '<strong style="flex:1;min-width:0">' + esc(displayName(w) || w.item_no) + '</strong>' +
       '<span class="muted">' + esc(w.item_no) + '</span></div>' +
       '<p style="margin:8px 0 0">' + obsLine + '</p>' +
       '<p class="muted" style="margin:4px 0 0">' + targetLine + '</p>' +

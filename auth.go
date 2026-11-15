@@ -65,7 +65,8 @@ func (l *loginLimiter) reset(username string) {
 
 // ---------- 当前用户 ----------
 
-// currentUser 从会话 Cookie 里解析当前用户（ReceiptBin 只有网页登录，没有 API token）。
+// currentUser 从会话 Cookie 里解析当前用户。
+// 网页登录走会话；商品词典 API（/api/products）走独立的 Bearer token，不走这里。
 func (a *App) currentUser(r *http.Request) *User {
 	if c, err := r.Cookie(sessionCookie); err == nil && c.Value != "" {
 		if u, err := a.store.GetSessionUser(c.Value); err == nil {

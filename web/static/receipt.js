@@ -24,13 +24,16 @@ async function load() {
     '</table></div>' +
     '<div class="card"><h2>商品</h2><table>' +
     '<tr><th>品名</th><th class="num">数量</th><th class="num">单价</th><th class="num">实付</th></tr>' +
-    items.map(it =>
-      '<tr onclick="location.href=\'/item/' + encodeURIComponent(it.item_no) + '\'" style="cursor:pointer">' +
-      '<td>' + esc(it.name) + '<br><span class="muted">' + esc(it.item_no) + ' · ' + esc(it.category) + '</span></td>' +
+    items.map(it => {
+      const en = nameEnSub(it);
+      return '<tr onclick="location.href=\'/item/' + encodeURIComponent(it.item_no) + '\'" style="cursor:pointer">' +
+      '<td>' + esc(displayName(it)) + '<br><span class="muted">' + esc(it.item_no) + ' · ' + esc(it.category) +
+      (en ? '<br>' + esc(en) : '') + '</span></td>' +
       '<td class="num">' + it.qty + '</td>' +
       '<td class="num money">' + fmtMoney(it.unit_price_cents) +
       (it.discount_cents > 0 ? '<br><span class="good">−' + fmtMoney(it.discount_cents) + '</span>' : '') + '</td>' +
-      '<td class="num money">' + fmtMoney(it.net_cents) + '</td></tr>').join('') +
+      '<td class="num money">' + fmtMoney(it.net_cents) + '</td></tr>';
+    }).join('') +
     '</table></div>';
   if (r.has_photo && r.photo_is_pdf) {
     html += '<div class="card"><h2>小票原件</h2>' +

@@ -18,11 +18,14 @@ async function load() {
   const watch = data.watch;
   const last = purchases[purchases.length - 1];
   const lastUnit = last.unit_price_cents - last.discount_cents;
+  const titleName = data.name_zh || data.name;
+  const enName = (data.name_zh && data.name && data.name !== data.name_zh) ? data.name : '';
 
-  let html = '<h1>' + esc(data.name) + '</h1>' +
+  let html = '<h1>' + esc(titleName) + '</h1>' +
     '<p class="muted">货号 ' + esc(itemNo) +
     ' <button class="mini-btn" id="copyNoBtn">复制货号</button> · ' + esc(data.category) +
-    ' · 最近实付 <span class="money">' + fmtMoney(lastUnit) + '</span></p>' +
+    ' · 最近实付 <span class="money">' + fmtMoney(lastUnit) + '</span>' +
+    (enName ? '<br>' + esc(enName) : '') + '</p>' +
     '<div class="btn-row" style="margin-bottom:16px">' +
     (watch
       ? '<button class="btn" id="watchBtn">已盯价' + (watch.target_cents != null ? '（目标 ' + fmtMoney(watch.target_cents) + '）' : '') + '</button>'

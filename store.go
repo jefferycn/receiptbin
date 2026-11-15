@@ -139,11 +139,13 @@ type Receipt struct {
 }
 
 // ReceiptItem 是 receipt_items 表的一行（同一小票内同货号已聚合）。
+// NameZh 是商品词典里的中文名（有则展示中文，没有则展示英文 Name）。
 type ReceiptItem struct {
 	ID             int64  `json:"id,omitempty"`
 	ReceiptID      string `json:"receipt_id,omitempty"`
 	ItemNo         string `json:"item_no"`
 	Name           string `json:"name"`
+	NameZh         string `json:"name_zh"`
 	Qty            int    `json:"qty"`
 	UnitPriceCents int    `json:"unit_price_cents"`
 	DiscountCents  int    `json:"discount_cents"` // 每件折扣
@@ -212,10 +214,10 @@ func (s *Store) CreateReceipt(r *Receipt, items []ReceiptItem) error {
 			it.Category = "其他"
 		}
 		_, err = tx.Exec(
-			`INSERT INTO receipt_items (receipt_id, item_no, name, qty, unit_price_cents,
+			`INSERT INTO receipt_items (receipt_id, item_no, name, name_zh, qty, unit_price_cents,
 				discount_cents, net_cents, taxable, food_exempt, category)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			r.ID, it.ItemNo, it.Name, it.Qty, it.UnitPriceCents, it.DiscountCents,
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.ID, it.ItemNo, it.Name, it.NameZh, it.Qty, it.UnitPriceCents, it.DiscountCents,
 			it.NetCents, boolToInt(it.Taxable), boolToInt(it.FoodExempt), it.Category)
 		if err != nil {
 			return err
@@ -239,7 +241,7 @@ func (s *Store) GetReceipt(id string) (*Receipt, error) {
 
 func (s *Store) GetReceiptItems(receiptID string) ([]ReceiptItem, error) {
 	rows, err := s.db.Query(
-		`SELECT id, receipt_id, item_no, name, qty, unit_price_cents, discount_cents,
+		`SELECT id, receipt_id, item_no, name, name_zh, qty, unit_price_cents, discount_cents,
 			net_cents, taxable, food_exempt, category FROM receipt_items
 		 WHERE receipt_id = ? ORDER BY id`, receiptID)
 	if err != nil {
@@ -254,7 +256,7 @@ func scanReceiptItems(rows *sql.Rows) ([]ReceiptItem, error) {
 	for rows.Next() {
 		var it ReceiptItem
 		var taxable, exempt int
-		if err := rows.Scan(&it.ID, &it.ReceiptID, &it.ItemNo, &it.Name, &it.Qty,
+		if err := rows.Scan(&it.ID, &it.ReceiptID, &it.ItemNo, &it.Name, &it.NameZh, &it.Qty,
 			&it.UnitPriceCents, &it.DiscountCents, &it.NetCents, &taxable, &exempt,
 			&it.Category); err != nil {
 			return nil, err
@@ -453,9 +455,11 @@ func (s *Store) KnownItemNumbers() (map[string]bool, error) {
 // ---------- 搜索与购买历史 ----------
 
 // ItemSummary 是搜索结果里的一件商品（按货号聚合）。
+// NameZh 有值时前端展示中文名，否则展示英文名。
 type ItemSummary struct {
 	ItemNo        string `json:"item_no"`
 	Name          string `json:"name"`
+	NameZh        string `json:"name_zh"`
 	Category      string `json:"category"`
 	PurchaseCount int    `json:"purchase_count"`
 	LastPrice     int    `json:"last_price_cents"`
@@ -470,6 +474,7 @@ func likeEscape(q string) string {
 }
 
 // SearchItems 按货号或品名搜商品（货号精确优先，品名模糊）。
+// 品名同时匹配英文名与中文名（中文名用普通 LIKE，不转大写）。
 func (s *Store) SearchItems(q string, limit int) ([]ItemSummary, error) {
 	q = strings.TrimSpace(q)
 	if q == "" {
@@ -479,7 +484,7 @@ func (s *Store) SearchItems(q string, limit int) ([]ItemSummary, error) {
 		limit = 30
 	}
 	rows, err := s.db.Query(
-		`SELECT ri.item_no, MAX(ri.name), MAX(ri.category), COUNT(*),
+		`SELECT ri.item_no, MAX(ri.name), MAX(ri.name_zh), MAX(ri.category), COUNT(*),
 			(SELECT ri2.unit_price_cents - ri2.discount_cents FROM receipt_items ri2
 			 JOIN receipts r2 ON r2.id = ri2.receipt_id
 			 WHERE ri2.item_no = ri.item_no ORDER BY r2.purchased_at DESC LIMIT 1),
@@ -489,10 +494,11 @@ func (s *Store) SearchItems(q string, limit int) ([]ItemSummary, error) {
 			 WHERE ri3.item_no = ri.item_no ORDER BY r3.purchased_at DESC LIMIT 1)
 		 FROM receipt_items ri JOIN receipts r ON r.id = ri.receipt_id
 		 WHERE ri.item_no LIKE ? ESCAPE '\' OR UPPER(ri.name) LIKE UPPER(?) ESCAPE '\'
+		 OR ri.name_zh LIKE ? ESCAPE '\'
 		 GROUP BY ri.item_no
 		 ORDER BY CASE WHEN ri.item_no = ? THEN 0 ELSE 1 END, MAX(r.purchased_at) DESC
 		 LIMIT ?`,
-		likeEscape(q), likeEscape(q), q, limit)
+		likeEscape(q), likeEscape(q), likeEscape(q), q, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -500,7 +506,7 @@ func (s *Store) SearchItems(q string, limit int) ([]ItemSummary, error) {
 	out := []ItemSummary{}
 	for rows.Next() {
 		var x ItemSummary
-		if err := rows.Scan(&x.ItemNo, &x.Name, &x.Category, &x.PurchaseCount,
+		if err := rows.Scan(&x.ItemNo, &x.Name, &x.NameZh, &x.Category, &x.PurchaseCount,
 			&x.LastPrice, &x.LastDate, &x.LastStore); err != nil {
 			return nil, err
 		}
@@ -512,7 +518,7 @@ func (s *Store) SearchItems(q string, limit int) ([]ItemSummary, error) {
 // GetItemPurchases 返回某货号的全部购买记录（时间升序，画价格线用）。
 func (s *Store) GetItemPurchases(itemNo string) ([]ReceiptItem, error) {
 	rows, err := s.db.Query(
-		`SELECT ri.id, ri.receipt_id, ri.item_no, ri.name, ri.qty, ri.unit_price_cents,
+		`SELECT ri.id, ri.receipt_id, ri.item_no, ri.name, ri.name_zh, ri.qty, ri.unit_price_cents,
 			ri.discount_cents, ri.net_cents, ri.taxable, ri.food_exempt, ri.category,
 			r.purchased_at, r.store, r.store_no
 		 FROM receipt_items ri JOIN receipts r ON r.id = ri.receipt_id
@@ -525,7 +531,7 @@ func (s *Store) GetItemPurchases(itemNo string) ([]ReceiptItem, error) {
 	for rows.Next() {
 		var it ReceiptItem
 		var taxable, exempt int
-		if err := rows.Scan(&it.ID, &it.ReceiptID, &it.ItemNo, &it.Name, &it.Qty,
+		if err := rows.Scan(&it.ID, &it.ReceiptID, &it.ItemNo, &it.Name, &it.NameZh, &it.Qty,
 			&it.UnitPriceCents, &it.DiscountCents, &it.NetCents, &taxable, &exempt,
 			&it.Category, &it.PurchasedAt, &it.Store, &it.StoreNo); err != nil {
 			return nil, err
@@ -540,14 +546,14 @@ func (s *Store) GetItemPurchases(itemNo string) ([]ReceiptItem, error) {
 // LatestPurchase 返回某货号最近一次购买（盯价回填用）。
 func (s *Store) LatestPurchase(itemNo string) (*ReceiptItem, error) {
 	row := s.db.QueryRow(
-		`SELECT ri.id, ri.receipt_id, ri.item_no, ri.name, ri.qty, ri.unit_price_cents,
+		`SELECT ri.id, ri.receipt_id, ri.item_no, ri.name, ri.name_zh, ri.qty, ri.unit_price_cents,
 			ri.discount_cents, ri.net_cents, ri.taxable, ri.food_exempt, ri.category,
 			r.purchased_at, r.store, r.store_no
 		 FROM receipt_items ri JOIN receipts r ON r.id = ri.receipt_id
 		 WHERE ri.item_no = ? ORDER BY r.purchased_at DESC LIMIT 1`, itemNo)
 	var it ReceiptItem
 	var taxable, exempt int
-	err := row.Scan(&it.ID, &it.ReceiptID, &it.ItemNo, &it.Name, &it.Qty,
+	err := row.Scan(&it.ID, &it.ReceiptID, &it.ItemNo, &it.Name, &it.NameZh, &it.Qty,
 		&it.UnitPriceCents, &it.DiscountCents, &it.NetCents, &taxable, &exempt,
 		&it.Category, &it.PurchasedAt, &it.Store, &it.StoreNo)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -565,7 +571,7 @@ func (s *Store) LatestPurchase(itemNo string) (*ReceiptItem, error) {
 // （调价比对用：比新小票早、且在 30 天窗口内的购买）。
 func (s *Store) EarlierPurchases(itemNo, from, before string) ([]ReceiptItem, error) {
 	rows, err := s.db.Query(
-		`SELECT ri.id, ri.receipt_id, ri.item_no, ri.name, ri.qty, ri.unit_price_cents,
+		`SELECT ri.id, ri.receipt_id, ri.item_no, ri.name, ri.name_zh, ri.qty, ri.unit_price_cents,
 			ri.discount_cents, ri.net_cents, ri.taxable, ri.food_exempt, ri.category,
 			r.purchased_at, r.store, r.store_no
 		 FROM receipt_items ri JOIN receipts r ON r.id = ri.receipt_id
@@ -579,7 +585,7 @@ func (s *Store) EarlierPurchases(itemNo, from, before string) ([]ReceiptItem, er
 	for rows.Next() {
 		var it ReceiptItem
 		var taxable, exempt int
-		if err := rows.Scan(&it.ID, &it.ReceiptID, &it.ItemNo, &it.Name, &it.Qty,
+		if err := rows.Scan(&it.ID, &it.ReceiptID, &it.ItemNo, &it.Name, &it.NameZh, &it.Qty,
 			&it.UnitPriceCents, &it.DiscountCents, &it.NetCents, &taxable, &exempt,
 			&it.Category, &it.PurchasedAt, &it.Store, &it.StoreNo); err != nil {
 			return nil, err
@@ -780,9 +786,11 @@ func (s *Store) SetAlertStatus(id int64, status string) error {
 // ---------- 盯价清单与价格观察 ----------
 
 // Watch 是 watchlist 表的一行；TargetCents 为 nil 表示只看降价、不限目标价。
+// NameZh 不进 watchlist 表，取商品词典（有中文名时前端展示中文）。
 type Watch struct {
 	ItemNo      string `json:"item_no"`
 	Name        string `json:"name"`
+	NameZh      string `json:"name_zh"`
 	TargetCents *int   `json:"target_cents"`
 	CreatedAt   string `json:"created_at"`
 	// LastObs 是最近一次观察（列表展示用，不进 watchlist 表）
@@ -837,6 +845,9 @@ func (s *Store) GetWatch(itemNo string) (*Watch, error) {
 		v := int(target.Int64)
 		w.TargetCents = &v
 	}
+	if p, err := s.GetProduct(itemNo); err == nil {
+		w.NameZh = p.NameZh
+	}
 	return w, nil
 }
 
@@ -862,6 +873,18 @@ func (s *Store) ListWatchlist() ([]Watch, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
+	}
+	// 中文名：批量查商品词典补上
+	nos := make([]string, 0, len(out))
+	for i := range out {
+		nos = append(nos, out[i].ItemNo)
+	}
+	for no, p := range s.ProductsFor(nos) {
+		for i := range out {
+			if out[i].ItemNo == no {
+				out[i].NameZh = p.NameZh
+			}
+		}
 	}
 	for i := range out {
 		if obs, err := s.LatestObservation(out[i].ItemNo); err == nil {

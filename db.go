@@ -53,6 +53,7 @@ CREATE TABLE IF NOT EXISTS receipt_items (
 	receipt_id TEXT NOT NULL REFERENCES receipts(id) ON DELETE CASCADE,
 	item_no TEXT NOT NULL,
 	name TEXT NOT NULL,
+	name_zh TEXT NOT NULL DEFAULT '',
 	qty INTEGER NOT NULL DEFAULT 1,
 	unit_price_cents INTEGER NOT NULL,
 	discount_cents INTEGER NOT NULL DEFAULT 0,
@@ -64,6 +65,17 @@ CREATE TABLE IF NOT EXISTS receipt_items (
 CREATE INDEX IF NOT EXISTS idx_items_receipt ON receipt_items(receipt_id);
 CREATE INDEX IF NOT EXISTS idx_items_item_no ON receipt_items(item_no);
 CREATE INDEX IF NOT EXISTS idx_items_category ON receipt_items(category);
+
+-- 商品词典（v1.2）：货号 → 中文名 + 分类。Costco 货号跨小票稳定，
+-- 是唯一可靠的键；助手通过 /api/products 批量更新，入库时自动套用，
+-- 更新后历史商品行也会追溯改名改分类。
+CREATE TABLE IF NOT EXISTS products (
+	item_number TEXT PRIMARY KEY,
+	name_zh TEXT NOT NULL DEFAULT '',
+	category TEXT NOT NULL DEFAULT '',
+	name_en TEXT NOT NULL DEFAULT '',
+	updated_at TEXT NOT NULL
+);
 
 -- 货号 → 分类映射：首次手动选分类后记住，下次同货号自动填。
 CREATE TABLE IF NOT EXISTS item_categories (
@@ -156,7 +168,39 @@ func openStore(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, err
 	}
+	// v1.2 迁移：v1.1 建的库 receipt_items 没有 name_zh 列，补上。
+	// products 表由上面的 CREATE TABLE IF NOT EXISTS 直接建好，不用迁移。
+	if err := migrateAddItemNameZh(db); err != nil {
+		db.Close()
+		return nil, err
+	}
 	return &Store{db: db, dataDir: dataDir}, nil
+}
+
+// migrateAddItemNameZh 给旧库的 receipt_items 补 name_zh 列（新库已有，跳过）。
+func migrateAddItemNameZh(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(receipt_items)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, typ string
+		var notnull, pk int
+		var dflt sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return err
+		}
+		if name == "name_zh" {
+			return nil
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+	_, err = db.Exec(`ALTER TABLE receipt_items ADD COLUMN name_zh TEXT NOT NULL DEFAULT ''`)
+	return err
 }
 
 func (s *Store) Close() error { return s.db.Close() }

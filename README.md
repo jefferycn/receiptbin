@@ -8,6 +8,7 @@
 - **查商品**：按货号或品名搜，看每次购买的日期、门店、价格，还有价格走势线。
 - **调价提醒**：Costco 购买后 30 天内自己降价可退差价——新小票入库或手动记价时自动比对，生成提醒（含截止日与可退金额）。
 - **盯价清单**：按货号盯特定商品，降价或到目标价时提醒。
+- **商品词典**：按货号存中文名与分类，新小票入库时自动套用，更新后历史记录也追溯改名改分类；助手通过 `/api/products`（Bearer token）批量更新。
 
 技术栈与 SimpleBin v2 一致：Go + SQLite，单静态二进制，Docker 部署，iOS 26 Liquid Glass 风格网页，iPhone 可 Add to Home Screen 当 App 用。
 
@@ -33,23 +34,61 @@ docker compose up -d --build
 - 首次打开：注册首个管理员（之后不再开放注册）。空库时一张示例小票会自动导入，开箱即有数据可看（示例数据全是虚构的）。
 - 备份：把 `data/` 目录整个拷走即可（数据库 + 小票照片都在里面）。
 - 更新：`git pull && docker compose up -d --build`。
+- 商品词典 API（可选）：想让助手帮你批量改中文名与分类时，先生成 token 并写进 `.env`，再重启：
+  ```bash
+  openssl rand -hex 24   # 生成 token，记下输出
+  cp .env.example .env   # 然后把 token 填进 .env 的 RECEIPTBIN_API_TOKEN
+  docker compose up -d --build
+  ```
+  不配 token 时 `/api/products` 返回 503，网页功能不受影响。`.env` 不进仓库。
 
 内存说明：Go 本身常驻约 10–25MB，但 tesseract OCR 大图时峰值能到 200–400MB，compose 里 `mem_limit: 512m` 是给 OCR 留的，不要调太小。
 
 ## 使用
 
-- **扫小票**：首页右下角按钮或顶栏 ＋，拍照或选照片；识别后在确认页核对（金额、分类都可改），对账通过才能保存。分类按货号自动记住，选过一次以后不用再选。
+- **扫小票**：首页右下角按钮或顶栏 ＋，拍照或选照片；识别后在确认页核对（金额、品名、数量可改），对账通过才能保存。分类与中文名由商品词典自动填，确认页不用选分类；词典没覆盖的商品默认“其他”，事后用词典 API 批量改。
 - **导 PDF**：costco.com → Orders & Purchases → Warehouse 页签 → View Receipt，保存/打印为 PDF 后上传。PDF 自带文本层，直接解析不用 OCR；会员号在读取时自动去掉。注意：新买的东西最长 24 小时才出现在官网记录里。
-- **查商品**：搜索页输货号或品名，点进商品详情看购买记录与价格走势；货号可一键复制。
+- **查商品**：搜索页输货号或品名（中文名也能搜），点进商品详情看购买记录与价格走势；货号可一键复制。
 - **调价提醒**：提醒页按截止日排序，办完点“已处理”。规则：购买后 30 天内、同渠道、有货、促销期内，带小票去会员柜台办；.97 清仓价不参与。
 - **盯价**：盯价页按货号加，目标价可选；新小票或手动记价触发降价/到价提醒。
+
+## 商品词典 API（v1.2）
+
+小票上的英文品名是缩写（如 `KS TILAPIA`），不一定认得出来，自动猜的分类也可能错。商品词典按 Costco 货号存中文名与分类：新小票入库时自动套用；更新词典后，历史商品行也追溯改名改分类。
+
+接口都在 `/api/products`，需要 Bearer token（`RECEIPTBIN_API_TOKEN`，见部署一节）。不接受网页登录 Cookie；token 未配置时返回 503，token 不对时返回 401。
+
+```bash
+# 下面用 YOUR_TOKEN_HERE 代替真实 token；域名换成你自己的
+BASE=https://receipt.example.com
+TOKEN=YOUR_TOKEN_HERE
+
+# 查哪些买过的商品还没命名（返回货号、英文名、购买次数、最近购买日）
+curl -H "Authorization: Bearer $TOKEN" $BASE/api/products/unmapped
+
+# 批量更新中文名与分类（name_zh 与 category 各自可选，但每条至少给一个；
+# 一次最多 500 条；响应按条报告是否新建与追溯改掉的行数）
+curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -d '{"items":[
+    {"item_number":"9000001","name_zh":"测试果汁","category":"乳制品/饮品"},
+    {"item_number":"9000002","name_zh":"测试小物"}
+  ]}' $BASE/api/products
+
+# 列出全部词条（按货号排序）
+curl -H "Authorization: Bearer $TOKEN" $BASE/api/products
+
+# 删一条词条（历史商品行已写入的中文名/分类保留不动）
+curl -X DELETE -H "Authorization: Bearer $TOKEN" $BASE/api/products/9000002
+```
+
+分类必须是这十个之一：生鲜、肉类海鲜、乳制品/饮品、烘焙/干货、日用品、厨房用品、宠物、运动、家居、其他。
 
 ## 本地开发
 
 ```bash
 go build ./...   # 需要 Go 1.27+
 go vet ./...
-go test ./...    # 23 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离
+go test ./...    # 32 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离、商品词典与 API
 ```
 
 OCR 需要本机装 tesseract（`tesseract-ocr` + 英文数据），否则照片上传会报 OCR 失败；PDF 导入需要 `pdftotext`（poppler-utils），缺失时 PDF 上传会明确报错；其余功能不受影响。

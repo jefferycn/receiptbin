@@ -29,13 +29,15 @@ async function search(query) {
     results.innerHTML = '<div class="empty">没找到“' + esc(query) + '”。<br>只搜买过的商品；没买过的请先扫小票入库。</div>';
     return;
   }
-  results.innerHTML = items.map(it =>
-    '<div class="item-row" onclick="location.href=\'/item/' + encodeURIComponent(it.item_no) + '\'">' +
-    '<div class="row-head"><span class="row-title">' + esc(it.name) + '</span>' +
+  results.innerHTML = items.map(it => {
+    const en = nameEnSub(it);
+    return '<div class="item-row" onclick="location.href=\'/item/' + encodeURIComponent(it.item_no) + '\'">' +
+    '<div class="row-head"><span class="row-title">' + esc(displayName(it)) + '</span>' +
     '<span class="row-meta money">' + fmtMoney(it.last_price_cents) + '</span></div>' +
     '<div class="row-sub">' + esc(it.item_no) + ' · ' + esc(it.category) +
     ' · 买过 ' + it.purchase_count + ' 次 · 最近 ' + fmtDate(it.last_date) +
-    '（' + esc(it.last_store) + '）</div></div>').join('');
+    '（' + esc(it.last_store) + '）' + (en ? '<br>' + esc(en) : '') + '</div></div>';
+  }).join('');
 }
 
 q.focus();

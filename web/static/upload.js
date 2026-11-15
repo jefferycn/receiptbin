@@ -2,16 +2,16 @@
 // 也可以上传官网导出的小票 PDF：直接读文本层解析，比 OCR 准。
 // 确认页实时对账：原价 − 折扣 = 小计，小计 + 税 = 总计，
 // 对不上（误差 > 1 分）时保存按钮禁用；服务端保存时还会再校验一次。
+// 分类与中文名由商品词典自动填：确认页只显示解析出的分类，不用手动选；
+// 词典没覆盖的商品默认“其他”，事后用词典 API 批量改中文名与分类。
 
 initTopbar();
-
-const CATEGORIES = ['生鲜', '肉类海鲜', '乳制品/饮品', '烘焙/干货', '日用品', '厨房用品', '宠物', '运动', '家居', '其他'];
 
 let uploadId = '';
 let rawText = '';
 let isPDF = false;
 let receiptDiscount = 0; // 整单立减（分），PDF 导出才有，不挂给单件商品
-let items = []; // {item_no, name, qty, unit_price_cents, discount_cents, taxable, food_exempt, category}
+let items = []; // {item_no, name, name_zh, qty, unit_price_cents, discount_cents, taxable, food_exempt, category}
 let categories = {};
 
 const $ = id => document.getElementById(id);
@@ -138,12 +138,6 @@ function showConfirm(receipt, problems) {
   window.scrollTo({ top: 0 });
 }
 
-function categorySelect(selected) {
-  return '<select data-field="category">' +
-    CATEGORIES.map(c => '<option value="' + c + '"' + (c === selected ? ' selected' : '') + '>' + c + '</option>').join('') +
-    '</select>';
-}
-
 function renderItems() {
   $('itemCountLabel').textContent = items.length;
   $('itemList').innerHTML = items.map((it, i) =>
@@ -153,11 +147,12 @@ function renderItems() {
     '<input type="text" data-field="name" value="' + esc(it.name) + '" placeholder="品名">' +
     '<button class="edit-del" data-del="' + i + '" title="删除这行">×</button>' +
     '</div>' +
+    (it.name_zh ? '<div class="muted" style="margin-top:4px">' + esc(it.name_zh) + '</div>' : '') +
     '<div class="edit-grid">' +
     '<div><label>数量</label><input type="number" data-field="qty" value="' + it.qty + '" min="1" step="1"></div>' +
     '<div><label>单价 $</label><input type="text" data-field="unit" value="' + centsToDollars(it.unit_price_cents) + '" inputmode="decimal"></div>' +
     '<div><label>折扣 $</label><input type="text" data-field="discount" value="' + centsToDollars(it.discount_cents) + '" inputmode="decimal"></div>' +
-    '<div><label>分类</label>' + categorySelect(it.category || '其他') + '</div>' +
+    '<div><label>分类</label><div class="muted" style="padding:8px 0">' + esc(it.category || '其他') + '</div></div>' +
     '</div>' +
     '<div class="muted" style="margin-top:6px">实付 <span class="money" data-net>$' +
     ((it.qty * (it.unit_price_cents - it.discount_cents)) / 100).toFixed(2) + '</span>' +
@@ -176,7 +171,6 @@ $('itemList').addEventListener('input', e => {
   if (f === 'qty') items[i].qty = Math.max(1, parseInt(e.target.value, 10) || 1);
   if (f === 'unit') { const v = dollarsToCents(e.target.value); if (!isNaN(v)) items[i].unit_price_cents = v; }
   if (f === 'discount') { const v = dollarsToCents(e.target.value); if (!isNaN(v)) items[i].discount_cents = v; }
-  if (f === 'category') items[i].category = e.target.value;
   const net = row.querySelector('[data-net]');
   if (net) net.textContent = '$' + ((items[i].qty * (items[i].unit_price_cents - items[i].discount_cents)) / 100).toFixed(2);
   reconcile();

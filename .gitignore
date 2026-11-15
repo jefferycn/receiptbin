@@ -8,5 +8,8 @@ data/
 receiptbin
 receiptbin.exe
 
+# 本地环境变量（可能含 API token，绝不进仓库）
+.env
+
 # 系统文件
 .DS_Store

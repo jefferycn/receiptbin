@@ -18,6 +18,9 @@ type App struct {
 	store         *Store
 	limiter       *loginLimiter
 	secureCookies bool
+	// apiToken 是商品词典 API 的 Bearer token（RECEIPTBIN_API_TOKEN 环境变量）。
+	// 为空时 /api/products 返回 503。只存内存，不写日志。
+	apiToken string
 }
 
 func main() {
@@ -32,7 +35,8 @@ func main() {
 	}
 	defer store.Close()
 
-	app := &App{store: store, limiter: newLoginLimiter(), secureCookies: secureCookies}
+	app := &App{store: store, limiter: newLoginLimiter(), secureCookies: secureCookies,
+		apiToken: os.Getenv("RECEIPTBIN_API_TOKEN")}
 	app.seedIfEmpty()    // 空库时导入示例种子小票
 	app.cleanupPending() // 清掉超过 24 小时的未确认上传
 	mux := app.routes()
@@ -54,6 +58,9 @@ func main() {
 		srv.Shutdown(shutdownCtx)
 	}()
 	log.Printf("ReceiptBin 启动：端口 %s，数据目录 %s", port, dataDir)
+	if app.apiToken == "" {
+		log.Printf("商品词典 API 未配置 token（RECEIPTBIN_API_TOKEN 为空），/api/products 将返回 503")
+	}
 	if err := srv.ListenAndServe(); err != http.ErrServerClosed {
 		log.Fatalf("服务退出: %v", err)
 	}
@@ -145,6 +152,12 @@ func (a *App) routes() *http.ServeMux {
 	mux.HandleFunc("POST /api/v1/watchlist", a.requireAPI(a.addWatchHandler))
 	mux.HandleFunc("PUT /api/v1/watchlist/{itemNo}", a.requireAPI(a.updateWatchHandler))
 	mux.HandleFunc("DELETE /api/v1/watchlist/{itemNo}", a.requireAPI(a.removeWatchHandler))
+
+	// ---- 商品词典 API（v1.2）：机器调用，Bearer token 鉴权，不接受会话 Cookie ----
+	mux.HandleFunc("GET /api/products", a.requireAPIToken(a.listProductsHandler))
+	mux.HandleFunc("POST /api/products", a.requireAPIToken(a.upsertProductsHandler))
+	mux.HandleFunc("DELETE /api/products/{item_number}", a.requireAPIToken(a.deleteProductHandler))
+	mux.HandleFunc("GET /api/products/unmapped", a.requireAPIToken(a.listUnmappedHandler))
 
 	// 未匹配的路径：浏览器回首页，API 返回 404
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {

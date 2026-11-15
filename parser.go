@@ -26,9 +26,11 @@ import (
 )
 
 // ParsedItem 是解析出的一个商品（同一小票内同货号已聚合）。
+// NameZh 由商品词典填（uploadHandler 查 products 表），解析器本身不填。
 type ParsedItem struct {
 	ItemNo         string `json:"item_no"`
 	Name           string `json:"name"`
+	NameZh         string `json:"name_zh"`
 	Qty            int    `json:"qty"`
 	UnitPriceCents int    `json:"unit_price_cents"`
 	DiscountCents  int    `json:"discount_cents"` // 每件折扣

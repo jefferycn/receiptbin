@@ -17,6 +17,9 @@ services:
       - PORT=8080
       # 反代 HTTPS 时保持 true；仅本地 HTTP 直连调试时改为 false
       - SECURE_COOKIES=true
+      # 商品词典 API 的 Bearer token：从 .env 文件读（见 .env.example）。
+      # 不设时 /api/products 返回 503，网页功能不受影响。
+      - RECEIPTBIN_API_TOKEN=${RECEIPTBIN_API_TOKEN:-}
     # Go 本身常驻约 10–25MB，但 tesseract OCR 大图时峰值能到 200–400MB，
     # 512MB 上限是给 OCR 留的；太小会在识别时被 OOM 杀掉
     mem_limit: 512m

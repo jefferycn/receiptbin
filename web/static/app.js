@@ -44,6 +44,17 @@ function esc(s) {
     ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 }
 
+// displayName：商品展示名——有中文名（商品词典）就显示中文，否则显示英文。
+// it 是带 name / name_zh 的对象（搜索结果、商品行、盯价条目都适用）。
+function displayName(it) {
+  return (it && it.name_zh) ? it.name_zh : (it ? it.name : '');
+}
+
+// nameEnSub：有中文名时，英文名作为副行展示（没有中文名时返回空字符串）。
+function nameEnSub(it) {
+  return (it && it.name_zh && it.name && it.name !== it.name_zh) ? it.name : '';
+}
+
 // fmtMoney：整数分 → "$12.49"。
 function fmtMoney(cents) {
   if (cents == null) return '';

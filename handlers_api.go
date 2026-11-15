@@ -310,19 +310,15 @@ func (a *App) uploadHandler(w http.ResponseWriter, r *http.Request, u *User) {
 			snapItemNumbers(parsed, known)
 		}
 	}
-	// 分类建议：按货号查记忆表
+	// 分类与中文名：先查商品词典（中文名 + 分类），词典没有的退回分类记忆或“其他”。
+	// 确认页不再要求手动选分类：词典没覆盖的商品默认“其他”，事后用词典 API 批量改。
 	itemNos := make([]string, 0, len(parsed.Items))
 	for _, it := range parsed.Items {
 		itemNos = append(itemNos, it.ItemNo)
 	}
 	cats := a.store.CategoriesFor(itemNos)
-	for i := range parsed.Items {
-		if c, ok := cats[parsed.Items[i].ItemNo]; ok {
-			parsed.Items[i].Category = c
-		} else {
-			parsed.Items[i].Category = "其他"
-		}
-	}
+	prods := a.store.ProductsFor(itemNos)
+	applyProducts(parsed.Items, cats, prods)
 	problems, warnings := Reconcile(parsed)
 	parsed.Warnings = append(parsed.Warnings, warnings...)
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -377,12 +373,23 @@ func (a *App) createReceiptHandler(w http.ResponseWriter, r *http.Request, u *Us
 		writeErr(w, http.StatusBadRequest, "至少要有一件商品")
 		return
 	}
-	// 归一化商品行并重算合计（不信任前端算好的数）
+	// 归一化商品行并重算合计（不信任前端算好的数）。
+	// 入库前再套一次词典：用户在确认页可能改了货号，或上传后词典刚更新过，
+	// 以入库时刻的词典为准。先去空白再查词典，避免带空格的货号查不到。
+	for i := range req.Items {
+		req.Items[i].ItemNo = strings.TrimSpace(req.Items[i].ItemNo)
+		req.Items[i].Name = strings.TrimSpace(req.Items[i].Name)
+	}
+	saveNos := make([]string, 0, len(req.Items))
+	for _, it := range req.Items {
+		saveNos = append(saveNos, it.ItemNo)
+	}
+	saveCats := a.store.CategoriesFor(saveNos)
+	saveProds := a.store.ProductsFor(saveNos)
+	applyProducts(req.Items, saveCats, saveProds)
 	items := make([]ReceiptItem, 0, len(req.Items))
 	gross, discounts, qtyTotal := 0, 0, 0
 	for _, it := range req.Items {
-		it.ItemNo = strings.TrimSpace(it.ItemNo)
-		it.Name = strings.TrimSpace(it.Name)
 		if it.ItemNo == "" || it.Name == "" || it.Qty < 1 || it.UnitPriceCents < 0 || it.DiscountCents < 0 {
 			writeErr(w, http.StatusBadRequest, "商品行数据不对：货号、品名、数量、价格不能为空或为负")
 			return
@@ -396,7 +403,7 @@ func (a *App) createReceiptHandler(w http.ResponseWriter, r *http.Request, u *Us
 		}
 		net := it.Qty * (it.UnitPriceCents - it.DiscountCents)
 		items = append(items, ReceiptItem{
-			ItemNo: it.ItemNo, Name: it.Name, Qty: it.Qty,
+			ItemNo: it.ItemNo, Name: it.Name, NameZh: it.NameZh, Qty: it.Qty,
 			UnitPriceCents: it.UnitPriceCents, DiscountCents: it.DiscountCents,
 			NetCents: net, Taxable: it.Taxable, FoodExempt: it.FoodExempt,
 			Category: it.Category,
@@ -464,7 +471,7 @@ func itemsAsParsed(items []ReceiptItem) []ParsedItem {
 	out := make([]ParsedItem, 0, len(items))
 	for _, it := range items {
 		out = append(out, ParsedItem{
-			ItemNo: it.ItemNo, Name: it.Name, Qty: it.Qty,
+			ItemNo: it.ItemNo, Name: it.Name, NameZh: it.NameZh, Qty: it.Qty,
 			UnitPriceCents: it.UnitPriceCents, DiscountCents: it.DiscountCents,
 			NetCents: it.NetCents, Taxable: it.Taxable, FoodExempt: it.FoodExempt,
 			Category: it.Category,
@@ -613,8 +620,14 @@ func (a *App) itemDetailHandler(w http.ResponseWriter, r *http.Request, u *User)
 	}
 	obs, _ := a.store.ObservationsFor(itemNo)
 	watch, _ := a.store.GetWatch(itemNo)
+	// 中文名：词典优先，否则取最近一次购买行的中文名
+	nameZh := purchases[len(purchases)-1].NameZh
+	if p, err := a.store.GetProduct(itemNo); err == nil && p.NameZh != "" {
+		nameZh = p.NameZh
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"item_no": itemNo, "name": purchases[0].Name, "category": purchases[0].Category,
+		"item_no": itemNo, "name": purchases[0].Name, "name_zh": nameZh,
+		"category":  purchases[0].Category,
 		"purchases": purchases, "observations": obs, "watch": watch,
 	})
 }
