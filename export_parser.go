@@ -5,7 +5,7 @@ package main
 //
 //   RIVERTON #456                       门店头（页眉）
 //   Member / 12 位会员号                 会员号：解析前已去掉，见 stripMemberNumbers
-//   E  3000001 GREEN TEA   12.49 N      商品行：E=食品免税，N/Y 后缀（Y=应税）
+//   E  3000001 GREEN TEA   12.49 N      商品行：单字母前缀（E=食品免税，F=FSA 合格商品等），N/Y 后缀（Y=应税）
 //   2 @ 4.50                            数量行：在商品行之前，商品行金额是小计
 //   3000002 PAPER 9.99 Y + 下一行 NAPKINS  品名可能换行续在下一行
 //   3000099  3.00-                      折扣行：金额带尾随 -，是整单立减，不是商品
@@ -26,8 +26,10 @@ var (
 	exportQtyRe = regexp.MustCompile(`^(\d+)\s+@\s+(\d{1,4}[.,]\d{2})\s*$`)
 	// exportDiscountRe 匹配折扣行：金额带尾随减号，如 "3000099  3.00-"。
 	exportDiscountRe = regexp.MustCompile(`(\d{1,4}[.,]\d{2})-\s*$`)
-	// exportItemRe 匹配商品行：可选 E 前缀、4–7 位货号、品名（可空）、金额、可选 N/Y 后缀。
-	exportItemRe = regexp.MustCompile(`^(E)?\s*(\d{4,7})\s+(.*?)\s*(\d{1,4}[.,]\d{2})\s*([NY])?\s*$`)
+	// exportItemRe 匹配商品行：可选单字母前缀、4–7 位货号、品名（可空）、金额、可选 N/Y 后缀。
+	// 前缀不止 E：F 是 FSA 合格商品（如卫生用品、绷带），只认 E 会把整行漏掉（2026-11-14 实测）。
+	// 只有 E 算食品免税，其他字母只作前缀接受、不记标志。
+	exportItemRe = regexp.MustCompile(`^([A-Z])?\s*(\d{4,7})\s+(.*?)\s*(\d{1,4}[.,]\d{2})\s*([NY])?\s*$`)
 	// exportWhseRe 匹配页脚门店号："Whse: 663"（页眉门店行读不出时的兜底）。
 	exportWhseRe = regexp.MustCompile(`Whse:\s*(\d{1,3})\b`)
 	// exportContinuationRe 匹配品名续行：大写单词，如 NAPKINS、BLUEBERRIES。

@@ -151,6 +151,91 @@ func TestParseExportReceipt(t *testing.T) {
 	}
 }
 
+// exportFPrefixFixture：F 前缀商品（FSA 合格商品）回归夹具。
+// 2026-11-14 真实小票：F 前缀行曾被商品正则漏掉。数字全是虚构的。
+// 对账：8.99 + 9.99 = 18.98，税 9.99×8.75% ≈ 0.87，总计 19.85。
+const exportFPrefixFixture = `RIVERTON #456
+1200 Sample Road
+Riverton, CA 94000
+
+
+21045600999999999999999
+
+Member
+123456789012
+F                   4000001 BANDAGE ROLL 8.99 N
+                    4000002 PAPER TOWEL  9.99 Y
+                             SUBTOTAL    18.98
+                             TAX         0.87
+                    ****     TOTAL       19.85
+
+
+                                         CHIP
+XXXXXXXXXXXX4242                         read
+APPROVED - PURCHASE
+AMOUNT: $19.85
+08/15/2026 16:40 456 3 123 789
+VISA                                        19.85
+CHANGE                                           0
+
+
+                (A) A                       0.87
+                TOTAL TAX                   0.87
+TOTAL NUMBER OF ITEMS SOLD = 2
+08/15/2026 16:40 456 3 123 789
+
+
+
+                     Thank You!
+                  Please Come Again
+
+      Whse: 456    Trm: 3   Trn: 123   OPT: 789
+
+Items Sold: 2
+P7 08/15/2026 04:40
+`
+
+func TestParseExportFPrefix(t *testing.T) {
+	p, err := ParseExportReceiptText(exportFPrefixFixture)
+	if err != nil {
+		t.Fatalf("F 前缀小票解析失败：%v", err)
+	}
+	if len(p.Items) != 2 {
+		t.Fatalf("商品行 = %d，想要 2（F 前缀行不能漏）", len(p.Items))
+	}
+	byNo := map[string]ParsedItem{}
+	qty := 0
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+		qty += it.Qty
+	}
+	band, ok := byNo["4000001"]
+	if !ok {
+		t.Fatalf("F 前缀商品 4000001 没解析出来")
+	}
+	if band.Name != "BANDAGE ROLL" {
+		t.Errorf("4000001 品名 = %q，想要 BANDAGE ROLL", band.Name)
+	}
+	// F 不是 E：不算食品免税；N 后缀：不算应税
+	if band.FoodExempt || band.Taxable {
+		t.Errorf("F 前缀商品应为非食品免税、非应税")
+	}
+	if !byNo["4000002"].Taxable {
+		t.Errorf("PAPER TOWEL 应为应税（Y）")
+	}
+	if qty != p.ItemCount || p.ItemCount != 2 {
+		t.Errorf("件数 = 解析 %d / 打印 %d，想要 2/2", qty, p.ItemCount)
+	}
+	if p.GrossCents != 1898 || p.SubtotalCents != 1898 || p.TaxCents != 87 || p.TotalCents != 1985 {
+		t.Errorf("原价/小计/税/总计 = %d/%d/%d/%d，想要 1898/1898/87/1985",
+			p.GrossCents, p.SubtotalCents, p.TaxCents, p.TotalCents)
+	}
+	problems, _ := Reconcile(p)
+	if len(problems) != 0 {
+		t.Errorf("对账应通过，问题：%v", problems)
+	}
+}
+
 func TestParseExportMemberStripped(t *testing.T) {
 	// 夹具里的假会员号 123456789012 不得出现在解析结果的任何地方
 	p, err := ParseExportReceiptText(exportFixture)
