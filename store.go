@@ -132,6 +132,7 @@ type Receipt struct {
 	SavingsCents  int    `json:"savings_cents"`
 	ItemCount     int    `json:"item_count"`
 	HasPhoto      bool   `json:"has_photo"`
+	PhotoIsPDF    bool   `json:"photo_is_pdf"` // 附件是导出的 PDF（不是照片）
 	PhotoPath     string `json:"-"`
 	RawText       string `json:"-"`
 	CreatedAt     string `json:"created_at"`
@@ -170,6 +171,7 @@ func scanReceipt(row interface{ Scan(...any) error }) (*Receipt, error) {
 		return nil, err
 	}
 	r.HasPhoto = r.PhotoPath != ""
+	r.PhotoIsPDF = strings.HasSuffix(strings.ToLower(r.PhotoPath), ".pdf")
 	return r, nil
 }
 

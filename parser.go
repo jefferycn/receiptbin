@@ -45,14 +45,17 @@ type ParsedReceipt struct {
 	PurchasedAt   string       `json:"purchased_at"` // "2006-01-02 15:04"
 	Items         []ParsedItem `json:"items"`
 	GrossCents    int          `json:"gross_cents"`
-	DiscountCents int          `json:"discount_cents"`
-	SubtotalCents int          `json:"subtotal_cents"`
-	TaxCents      int          `json:"tax_cents"`
-	TotalCents    int          `json:"total_cents"`
-	SavingsCents  int          `json:"savings_cents"`
-	ItemCount     int          `json:"item_count"`    // 小票打印的件数
-	TotalDerived  bool         `json:"total_derived"` // total 由小计+税推导（TOTAL 行没读出）
-	Warnings      []string     `json:"warnings"`
+	DiscountCents int          `json:"discount_cents"` // 折扣合计：单件折扣 + 整单立减
+	// ReceiptDiscountCents 是整单立减部分（官网导出 PDF 的折扣行，不挂给单件商品）。
+	// 纸质小票路径恒为 0。入库时并入 savings_cents，不单独存库。
+	ReceiptDiscountCents int      `json:"receipt_discount_cents"`
+	SubtotalCents        int      `json:"subtotal_cents"`
+	TaxCents             int      `json:"tax_cents"`
+	TotalCents           int      `json:"total_cents"`
+	SavingsCents         int      `json:"savings_cents"`
+	ItemCount            int      `json:"item_count"`    // 小票打印的件数
+	TotalDerived         bool     `json:"total_derived"` // total 由小计+税推导（TOTAL 行没读出）
+	Warnings             []string `json:"warnings"`
 }
 
 var (

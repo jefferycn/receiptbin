@@ -204,74 +204,111 @@ func (a *App) statsHandler(w http.ResponseWriter, r *http.Request, u *User) {
 
 // ---------- 小票上传与保存 ----------
 
-// uploadHandler 收小票照片，跑 OCR + 解析，返回解析结果与分类建议。
-// 照片存在 data/pending/<uploadID>，确认保存时才挪到 receipts/。
+// uploadHandler 收小票照片或官网导出的 PDF，识别 + 解析，返回解析结果与分类建议。
+// 文件存在 data/pending/<uploadID>，确认保存时才挪到 receipts/。
+// 照片走 OCR + 纸质解析；PDF 走 pdftotext 提文本 + 导出格式解析（自带文本层，不用 OCR）。
 // 注意：OCR 可能跑几十秒，前端要显示进度；这里不设额外超时，
 // 依赖 http.Server 的整体超时与 ocr.go 里的 120 秒上限。
 func (a *App) uploadHandler(w http.ResponseWriter, r *http.Request, u *User) {
 	r.Body = http.MaxBytesReader(w, r.Body, maxUploadSize)
 	if err := r.ParseMultipartForm(maxUploadSize); err != nil {
-		writeErr(w, http.StatusBadRequest, "照片太大或格式不对（上限 20MB）")
+		writeErr(w, http.StatusBadRequest, "文件太大或格式不对（上限 20MB）")
 		return
 	}
 	file, header, err := r.FormFile("photo")
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "请上传小票照片")
+		writeErr(w, http.StatusBadRequest, "请上传小票照片或 PDF")
 		return
 	}
 	defer file.Close()
-	ext, ok := extForContentType(header.Header.Get("Content-Type"))
-	if !ok {
-		// 有些浏览器不填 MIME，退化为按文件名后缀判断
-		switch strings.ToLower(filepath.Ext(header.Filename)) {
-		case ".jpg", ".jpeg":
-			ext = ".jpg"
-		case ".png":
-			ext = ".png"
-		case ".webp":
-			ext = ".webp"
-		case ".heic", ".heif":
-			ext = ".heic"
-		default:
-			writeErr(w, http.StatusBadRequest, "只支持 JPG / PNG / WebP / HEIC 照片")
-			return
+	isPDF := false
+	ext := ""
+	if header.Header.Get("Content-Type") == "application/pdf" {
+		ext, isPDF = ".pdf", true
+	}
+	if ext == "" {
+		var ok bool
+		ext, ok = extForContentType(header.Header.Get("Content-Type"))
+		if !ok {
+			// 有些浏览器不填 MIME，退化为按文件名后缀判断
+			switch strings.ToLower(filepath.Ext(header.Filename)) {
+			case ".jpg", ".jpeg":
+				ext = ".jpg"
+			case ".png":
+				ext = ".png"
+			case ".webp":
+				ext = ".webp"
+			case ".heic", ".heif":
+				ext = ".heic"
+			case ".pdf":
+				ext, isPDF = ".pdf", true
+			default:
+				writeErr(w, http.StatusBadRequest, "只支持 JPG / PNG / WebP / HEIC 照片或 PDF")
+				return
+			}
 		}
 	}
 	uploadID := randBase62(12)
 	pendingPath := filepath.Join(a.store.dataDir, "pending", uploadID+ext)
 	dst, err := os.Create(pendingPath)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "保存照片失败")
+		writeErr(w, http.StatusInternalServerError, "保存上传文件失败")
 		return
 	}
 	if _, err := io.Copy(dst, file); err != nil {
 		dst.Close()
 		os.Remove(pendingPath)
-		writeErr(w, http.StatusBadRequest, "照片太大或上传中断（上限 20MB）")
+		writeErr(w, http.StatusBadRequest, "文件太大或上传中断（上限 20MB）")
 		return
 	}
 	dst.Close()
-	if !isImageFile(pendingPath) {
+	// 按文件头校验真实类型，避免扩展名欺骗
+	if isPDF {
+		if !isPDFFile(pendingPath) {
+			os.Remove(pendingPath)
+			writeErr(w, http.StatusBadRequest, "上传的文件不是 PDF")
+			return
+		}
+	} else if !isImageFile(pendingPath) {
 		os.Remove(pendingPath)
 		writeErr(w, http.StatusBadRequest, "上传的文件不是图片")
 		return
 	}
-	text, err := OCRReceipt(pendingPath)
-	if err != nil {
-		os.Remove(pendingPath)
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	parsed, err := ParseReceiptText(text)
-	if err != nil {
-		os.Remove(pendingPath)
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	// 货号纠错：同名同价、只差一位数字的货号合并（OCR 常把 5 读成 8），
-	// 库里已有的货号优先。纠错在对账与分类填充之前做。
-	if known, err := a.store.KnownItemNumbers(); err == nil {
-		snapItemNumbers(parsed, known)
+	var text string
+	var parsed *ParsedReceipt
+	if isPDF {
+		// PDF：提文本（会员号在提文本时已去掉）+ 导出格式解析；
+		// 文本层是干净的，不用跑货号纠错。
+		text, err = ExtractPDFText(pendingPath)
+		if err != nil {
+			os.Remove(pendingPath)
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		parsed, err = ParseExportReceiptText(text)
+		if err != nil {
+			os.Remove(pendingPath)
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+	} else {
+		text, err = OCRReceipt(pendingPath)
+		if err != nil {
+			os.Remove(pendingPath)
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		parsed, err = ParseReceiptText(text)
+		if err != nil {
+			os.Remove(pendingPath)
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		// 货号纠错：同名同价、只差一位数字的货号合并（OCR 常把 5 读成 8），
+		// 库里已有的货号优先。纠错在对账与分类填充之前做。
+		if known, err := a.store.KnownItemNumbers(); err == nil {
+			snapItemNumbers(parsed, known)
+		}
 	}
 	// 分类建议：按货号查记忆表
 	itemNos := make([]string, 0, len(parsed.Items))
@@ -293,6 +330,7 @@ func (a *App) uploadHandler(w http.ResponseWriter, r *http.Request, u *User) {
 		"receipt":   parsed,
 		"problems":  problems,
 		"raw_text":  text,
+		"is_pdf":    isPDF,
 	})
 }
 
@@ -301,18 +339,19 @@ func (a *App) uploadHandler(w http.ResponseWriter, r *http.Request, u *User) {
 // 返回 409，前端确认后带 force=true 重试。
 func (a *App) createReceiptHandler(w http.ResponseWriter, r *http.Request, u *User) {
 	var req struct {
-		UploadID      string       `json:"upload_id"`
-		Store         string       `json:"store"`
-		StoreNo       string       `json:"store_no"`
-		PurchasedAt   string       `json:"purchased_at"`
-		SubtotalCents int          `json:"subtotal_cents"`
-		TaxCents      int          `json:"tax_cents"`
-		TotalCents    int          `json:"total_cents"`
-		SavingsCents  int          `json:"savings_cents"`
-		ItemCount     int          `json:"item_count"`
-		RawText       string       `json:"raw_text"`
-		Items         []ParsedItem `json:"items"`
-		Force         bool         `json:"force"`
+		UploadID             string       `json:"upload_id"`
+		Store                string       `json:"store"`
+		StoreNo              string       `json:"store_no"`
+		PurchasedAt          string       `json:"purchased_at"`
+		SubtotalCents        int          `json:"subtotal_cents"`
+		TaxCents             int          `json:"tax_cents"`
+		TotalCents           int          `json:"total_cents"`
+		SavingsCents         int          `json:"savings_cents"`
+		ReceiptDiscountCents int          `json:"receipt_discount_cents"` // 整单立减（PDF 导出）
+		ItemCount            int          `json:"item_count"`
+		RawText              string       `json:"raw_text"`
+		Items                []ParsedItem `json:"items"`
+		Force                bool         `json:"force"`
 	}
 	if err := decodeJSON(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, "请求格式错误")
@@ -366,10 +405,18 @@ func (a *App) createReceiptHandler(w http.ResponseWriter, r *http.Request, u *Us
 		discounts += it.Qty * it.DiscountCents
 		qtyTotal += it.Qty
 	}
+	if req.ReceiptDiscountCents < 0 {
+		writeErr(w, http.StatusBadRequest, "整单立减不能为负")
+		return
+	}
+	// 立减合计 = 单件折扣 + 整单立减（服务端重算，不信任前端传来的数）；
+	// 整单立减不单独存库，并入 savings_cents。
+	discountTotal := discounts + req.ReceiptDiscountCents
 	parsed := &ParsedReceipt{
-		Items: itemsAsParsed(items), GrossCents: gross, DiscountCents: discounts,
-		SubtotalCents: req.SubtotalCents, TaxCents: req.TaxCents, TotalCents: req.TotalCents,
-		SavingsCents: req.SavingsCents, ItemCount: req.ItemCount,
+		Items: itemsAsParsed(items), GrossCents: gross, DiscountCents: discountTotal,
+		ReceiptDiscountCents: req.ReceiptDiscountCents,
+		SubtotalCents:        req.SubtotalCents, TaxCents: req.TaxCents, TotalCents: req.TotalCents,
+		SavingsCents: discountTotal, ItemCount: req.ItemCount,
 	}
 	if problems, _ := Reconcile(parsed); len(problems) > 0 {
 		writeErr(w, http.StatusBadRequest, "对账不通过："+strings.Join(problems, "；"))
@@ -399,8 +446,9 @@ func (a *App) createReceiptHandler(w http.ResponseWriter, r *http.Request, u *Us
 	rec := &Receipt{
 		ID: id, Store: req.Store, StoreNo: req.StoreNo, PurchasedAt: req.PurchasedAt,
 		SubtotalCents: req.SubtotalCents, TaxCents: req.TaxCents, TotalCents: req.TotalCents,
-		SavingsCents: req.SavingsCents, ItemCount: req.ItemCount,
-		PhotoPath: photoPath, RawText: req.RawText,
+		SavingsCents: discountTotal, ItemCount: req.ItemCount,
+		// 入库前再剥一次会员号（纵深防御：raw_text 是前端回传的，不信任它）
+		PhotoPath: photoPath, RawText: stripMemberNumbers(req.RawText),
 	}
 	if err := a.store.CreateReceipt(rec, items); err != nil {
 		writeErr(w, http.StatusInternalServerError, "保存小票失败")

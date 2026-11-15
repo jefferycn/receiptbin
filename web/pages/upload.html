@@ -36,9 +36,9 @@
 
   <div id="stepUpload">
     <div class="dropzone" id="dropzone">
-      <input type="file" id="photoInput" accept="image/*">
-      <p><strong>点按拍照或选照片</strong></p>
-      <p>把整张小票拍进画面，字迹越正、光线越匀，识别越准。识别要几秒到一分钟。</p>
+      <input type="file" id="photoInput" accept="image/*,.pdf,application/pdf">
+      <p><strong>点按拍照、选照片或选 PDF</strong></p>
+      <p>把整张小票拍进画面，字迹越正、光线越匀，识别越准。识别要几秒到一分钟。也可以上传 Costco 官网导出的小票 PDF（Orders &amp; Purchases → Warehouse → View Receipt），直接读文本，更准。</p>
       <img id="previewImg" class="preview-img" hidden alt="小票预览">
     </div>
     <p id="ocrStatus" class="muted" style="text-align:center;margin-top:12px"></p>
@@ -49,6 +49,7 @@
     <div class="card">
       <div style="display:flex;gap:12px;align-items:flex-start">
         <img id="confirmThumb" class="receipt-photo" style="max-width:120px;margin:0;cursor:zoom-in" hidden alt="小票照片">
+        <a id="confirmPdfLink" class="btn" hidden target="_blank" rel="noopener">查看 PDF 原件</a>
         <div style="flex:1">
           <h2 style="margin:0 0 4px">核对小票</h2>
           <p class="muted" style="margin:0">识别结果可能有错，保存前请核对。金额对不上账时无法保存。</p>

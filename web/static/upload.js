@@ -1,4 +1,5 @@
 // 扫小票：拍照上传 → OCR → 确认页人工核对 → 保存。
+// 也可以上传官网导出的小票 PDF：直接读文本层解析，比 OCR 准。
 // 确认页实时对账：原价 − 折扣 = 小计，小计 + 税 = 总计，
 // 对不上（误差 > 1 分）时保存按钮禁用；服务端保存时还会再校验一次。
 
@@ -8,6 +9,8 @@ const CATEGORIES = ['生鲜', '肉类海鲜', '乳制品/饮品', '烘焙/干货
 
 let uploadId = '';
 let rawText = '';
+let isPDF = false;
+let receiptDiscount = 0; // 整单立减（分），PDF 导出才有，不挂给单件商品
 let items = []; // {item_no, name, qty, unit_price_cents, discount_cents, taxable, food_exempt, category}
 let categories = {};
 
@@ -43,12 +46,21 @@ photoInput.addEventListener('change', () => {
   if (photoInput.files.length) handleFile(photoInput.files[0]);
 });
 
+function isPDFFile(file) {
+  return file.type === 'application/pdf' || /\.pdf$/i.test(file.name || '');
+}
+
 async function handleFile(file) {
-  if (!file.type.startsWith('image/')) { toast('请上传图片'); return; }
+  const pdf = isPDFFile(file);
+  if (!pdf && !file.type.startsWith('image/')) { toast('请上传图片或 PDF'); return; }
   const preview = $('previewImg');
-  preview.src = URL.createObjectURL(file);
-  preview.hidden = false;
-  $('ocrStatus').innerHTML = '<span class="spinner"></span> 正在识别小票，请稍候…';
+  if (pdf) {
+    preview.hidden = true;
+  } else {
+    preview.src = URL.createObjectURL(file);
+    preview.hidden = false;
+  }
+  $('ocrStatus').innerHTML = '<span class="spinner"></span> ' + (pdf ? '正在读取 PDF，请稍候…' : '正在识别小票，请稍候…');
   const fd = new FormData();
   fd.append('photo', file);
   let d;
@@ -62,6 +74,8 @@ async function handleFile(file) {
   $('ocrStatus').textContent = '';
   uploadId = d.upload_id;
   rawText = d.raw_text || '';
+  isPDF = !!d.is_pdf;
+  receiptDiscount = (d.receipt && d.receipt.receipt_discount_cents) || 0;
   showConfirm(d.receipt, d.problems || []);
 }
 
@@ -69,6 +83,8 @@ async function handleFile(file) {
 $('manualBtn').addEventListener('click', () => {
   uploadId = '';
   rawText = '';
+  isPDF = false;
+  receiptDiscount = 0;
   const now = new Date();
   const pad = n => String(n).padStart(2, '0');
   showConfirm({
@@ -95,7 +111,13 @@ function showConfirm(receipt, problems) {
   $('fTax').value = centsToDollars(receipt.tax_cents);
   $('fTotal').value = centsToDollars(receipt.total_cents);
   const thumb = $('confirmThumb');
-  if (uploadId) {
+  const pdfLink = $('confirmPdfLink');
+  if (uploadId && isPDF) {
+    thumb.hidden = true;
+    pdfLink.href = '/api/v1/pending/' + uploadId;
+    pdfLink.hidden = false;
+  } else if (uploadId) {
+    pdfLink.hidden = true;
     thumb.src = '/api/v1/pending/' + uploadId;
     thumb.hidden = false;
     thumb.onclick = () => {
@@ -105,6 +127,7 @@ function showConfirm(receipt, problems) {
     };
   } else {
     thumb.hidden = true;
+    pdfLink.hidden = true;
   }
   const warns = [...(receipt.warnings || []), ...problems];
   $('warnBox').innerHTML = warns.length
@@ -179,11 +202,13 @@ $('cancelBtn').addEventListener('click', () => {
   $('stepUpload').hidden = false;
   $('previewImg').hidden = true;
   photoInput.value = '';
+  isPDF = false;
+  receiptDiscount = 0;
   window.scrollTo({ top: 0 });
 });
 
 function reconcile() {
-  let gross = 0, disc = 0, qty = 0;
+  let gross = 0, disc = receiptDiscount, qty = 0; // 整单立减也计入折扣合计
   for (const it of items) {
     gross += it.qty * it.unit_price_cents;
     disc += it.qty * it.discount_cents;
@@ -237,7 +262,7 @@ $('saveBtn').addEventListener('click', async () => {
 });
 
 async function saveReceipt(force) {
-  let qtyTotal = 0, savings = 0;
+  let qtyTotal = 0, savings = receiptDiscount;
   for (const it of items) { qtyTotal += it.qty; savings += it.qty * it.discount_cents; }
   const body = {
     upload_id: uploadId,
@@ -248,6 +273,7 @@ async function saveReceipt(force) {
     tax_cents: dollarsToCents($('fTax').value),
     total_cents: dollarsToCents($('fTotal').value),
     savings_cents: savings,
+    receipt_discount_cents: receiptDiscount,
     item_count: qtyTotal,
     raw_text: rawText,
     items: items,

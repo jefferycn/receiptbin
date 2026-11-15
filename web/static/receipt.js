@@ -32,7 +32,10 @@ async function load() {
       (it.discount_cents > 0 ? '<br><span class="good">−' + fmtMoney(it.discount_cents) + '</span>' : '') + '</td>' +
       '<td class="num money">' + fmtMoney(it.net_cents) + '</td></tr>').join('') +
     '</table></div>';
-  if (r.has_photo) {
+  if (r.has_photo && r.photo_is_pdf) {
+    html += '<div class="card"><h2>小票原件</h2>' +
+      '<p><a class="btn" href="/api/v1/receipts/' + encodeURIComponent(id) + '/photo" target="_blank" rel="noopener">查看 PDF 原件</a></p></div>';
+  } else if (r.has_photo) {
     html += '<div class="card"><h2>小票照片</h2>' +
       '<img class="receipt-photo" id="photoImg" src="/api/v1/receipts/' + encodeURIComponent(id) + '/photo" alt="小票照片"></div>';
   }
