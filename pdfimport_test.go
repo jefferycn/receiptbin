@@ -552,6 +552,90 @@ func TestParseExportInterleavedNames(t *testing.T) {
 	}
 }
 
+const exportUnresolvedRefFixture = `RIVERTON #456
+1200 Sample Road
+Riverton, CA 94000
+
+
+21045600999999999999999
+
+Member
+123456789012
+E                   4000020 CHICKEN      51.31 N
+                    389506 /4000099      14.00-
+                    389507 /4000098       1.00-
+E                   4000021 MILK         12.99 N
+                             SUBTOTAL    49.30
+                             TAX         0.00
+                    ****     TOTAL       49.30
+
+
+                                         CHIP
+XXXXXXXXXXXX4242                         read
+APPROVED - PURCHASE
+AMOUNT: $49.30
+08/15/2026 16:40 456 3 123 789
+VISA                                        49.30
+CHANGE                                           0
+
+
+                TOTAL TAX                   0.00
+TOTAL NUMBER OF ITEMS SOLD = 2
+INSTANT SAVINGS                            $15.00
+08/15/2026 16:40 456 3 123 789
+
+
+                     Thank You!
+                 Please Come Again
+
+     Whse: 456    Trm: 3   Trn: 123   OPT: 789
+
+Items Sold: 2
+P7 08/15/2026 04:40
+`
+
+// 引用货号不在小票上时，折扣退回挂给上一件商品（0828 实测：/13664 不在小票上，
+// 但 14.00- 紧跟在鸡胸肉后面，就是它的折扣）；只有前面没有任何商品时才算整单立减。
+func TestParseExportUnresolvedRefFallsBackToPreviousItem(t *testing.T) {
+	p, err := ParseExportReceiptText(exportUnresolvedRefFixture)
+	if err != nil {
+		t.Fatalf("引用未解析折扣小票解析失败：%v", err)
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	// 14.00 挂给鸡胸肉，不是整单立减
+	chicken := byNo["4000020"]
+	if chicken.DiscountCents != 1400 || chicken.NetCents != 3731 {
+		t.Errorf("鸡胸肉 折扣/实付 = %d/%d，想要 1400/3731（/4000099 引用找不到时退回挂给上一件）",
+			chicken.DiscountCents, chicken.NetCents)
+	}
+	// 第二条折扣前面没有商品（上一条折扣清掉了 lastItem），仍是整单立减
+	if p.DiscountCents != 1500 || p.ReceiptDiscountCents != 100 {
+		t.Errorf("折扣合计/整单立减 = %d/%d，想要 1500/100", p.DiscountCents, p.ReceiptDiscountCents)
+	}
+	// 警告只提 4000098（真正无处可挂的那条），不提已归属的 4000099
+	for _, w := range p.Warnings {
+		if strings.Contains(w, "4000099") {
+			t.Errorf("不应有 4000099 的警告（已挂给鸡胸肉），实际：%v", p.Warnings)
+		}
+	}
+	found := false
+	for _, w := range p.Warnings {
+		if strings.Contains(w, "4000098") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("应有 4000098 无处可挂的警告，实际：%v", p.Warnings)
+	}
+	problems, warnings := Reconcile(p)
+	if len(problems) != 0 || len(warnings) != 0 {
+		t.Errorf("对账应通过且无警告，问题：%v 警告：%v", problems, warnings)
+	}
+}
+
 func TestParseExportBareDiscountAttachesToPreviousItem(t *testing.T) {
 	p, err := ParseExportReceiptText(exportBareDiscountFixture)
 	if err != nil {
