@@ -95,10 +95,12 @@
     <h2>商品（<span id="itemCountLabel">0</span> 行）</h2>
     <div id="itemList"></div>
     <p><button class="btn" id="addItemBtn">＋ 加一件商品</button></p>
-    <div class="btn-row" style="margin-top:16px">
-      <button class="btn primary big" id="saveBtn" style="flex:1">保存小票</button>
+    <div class="confirm-actions">
+      <div class="confirm-actions-inner">
+        <button class="btn" id="cancelBtn">取消，重新拍</button>
+        <button class="btn primary big" id="saveBtn" style="flex:1">保存小票</button>
+      </div>
     </div>
-    <p style="text-align:center;margin-top:12px"><button class="linkbtn" id="cancelBtn">取消，重新拍</button></p>
   </div>
 </main>
 <div id="toast"></div>
