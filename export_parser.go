@@ -247,6 +247,18 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 			continue
 		}
 
+		// ---- 押金行引用：EE/货号，上一件商品是 CRV 押金 ----
+		// 必须在品名续行之前判断：EE/ 行本身符合续行正则，不拦住会被当成品名。
+		if feeRefRe.MatchString(line) {
+			if lastItem != nil {
+				lastItem.IsFee = true
+				if lastItem.Name == "" || lastItem.Name == lastItem.ItemNo {
+					lastItem.Name = "CA REDEMP VAL"
+				}
+			}
+			continue
+		}
+
 		// ---- 品名续行：无金额的大写单词行，接在上一件商品的品名后面 ----
 		if lastItem != nil && exportContinuationRe.MatchString(line) && findAmounts(line) == nil {
 			skip := false

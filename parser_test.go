@@ -249,6 +249,54 @@ func TestParseTxnRefFromTxnLine(t *testing.T) {
 }
 
 // 纸质小票的 B 类税商品：金额后标 B 也算应税（与导出格式的 B 税码对应）。
+// 纸质小票的 CRV 押金行：EE/货号 标明上一件是押金，算钱不算件数。
+func TestParseOCRCRVFee(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+1000 Example Blvd
+Fremont, CA 94536
+(510) 555-0100
+E 1000021 SMOOTHIE 7.49
+0000999004 /1000021 2.50-A
+6000002 CA REDEMP VAL 0.10
+EE/1000021
+E 1000022 ORANGE JUICE 8.99
+SUBTOTAL 14.08
+TAX 0.00
+**** TOTAL 14.08
+XXXXXXXXXXXX4242 H
+APPROVED - Purchase
+AMOUNT: $14.08
+Visa 14.08
+CHANGE 0.00
+TOTAL TAX 0.00
+TOTAL NUMBER OF ITEMS SOLD = 2
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatalf("押金纸质小票解析失败：%v", err)
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	fee, ok := byNo["6000002"]
+	if !ok {
+		t.Fatalf("押金行 6000002 没解析出来")
+	}
+	if !fee.IsFee {
+		t.Errorf("押金行应标为费用（IsFee）")
+	}
+	if fee.Name != "CA REDEMP VAL" {
+		t.Errorf("押金行品名 = %q，想要 CA REDEMP VAL", fee.Name)
+	}
+	problems, warnings := Reconcile(p)
+	if len(problems) != 0 || len(warnings) != 0 {
+		t.Errorf("对账应通过且无警告（押金不算件数），问题：%v 警告：%v", problems, warnings)
+	}
+}
+
 func TestParseOCRBFlagTaxable(t *testing.T) {
 	fixture := `COSTCO WHOLESALE
 Fremont #123

@@ -212,7 +212,7 @@ function reconcile() {
   for (const it of items) {
     gross += it.qty * it.unit_price_cents;
     disc += it.qty * it.discount_cents;
-    qty += it.qty;
+    if (!it.is_fee) qty += it.qty; // 押金行算钱，不算件数
   }
   const sub = dollarsToCents($('fSubtotal').value);
   const tax = dollarsToCents($('fTax').value);
@@ -277,7 +277,10 @@ $('saveBtn').addEventListener('click', async () => {
 
 async function saveReceipt(force, replaceId) {
   let qtyTotal = 0, savings = receiptDiscount;
-  for (const it of items) { qtyTotal += it.qty; savings += it.qty * it.discount_cents; }
+  for (const it of items) {
+    if (!it.is_fee) qtyTotal += it.qty; // 押金行算钱，不算件数
+    savings += it.qty * it.discount_cents;
+  }
   const body = {
     upload_id: uploadId,
     store: $('fStore').value.trim(),

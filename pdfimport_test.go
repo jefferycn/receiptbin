@@ -355,6 +355,96 @@ P7 08/15/2026 04:40
 
 // 不带货号引用的折扣行属于上一件商品（1030 实测：2.00- 跟在 KBELL 后面，
 // 中间夹 /NO SHOW 备注行；旧逻辑一律按整单立减，错）。
+const exportFeeFixture = `RIVERTON #456
+1200 Sample Road
+Riverton, CA 94000
+
+
+21045600999999999999999
+
+Member
+123456789012
+E                   4000004 SMOOTHIE      7.49 N
+                    390171 /4000004       2.50-
+                             CA REDEMP VAL N
+                    6000001                0.10
+                             EE/4000004
+E                   4032 WATERMELON     5.99 N
+                             SUBTOTAL    11.08
+                             TAX         0.00
+                    ****     TOTAL       11.08
+
+
+                                         CHIP
+XXXXXXXXXXXX4242                         read
+APPROVED - PURCHASE
+AMOUNT: $11.08
+08/15/2026 16:40 456 3 123 789
+VISA                                        11.08
+CHANGE                                           0
+
+
+                TOTAL TAX                   0.00
+TOTAL NUMBER OF ITEMS SOLD = 2
+INSTANT SAVINGS                            $2.50
+08/15/2026 16:40 456 3 123 789
+
+
+                     Thank You!
+                 Please Come Again
+
+     Whse: 456    Trm: 3   Trn: 123   OPT: 789
+
+Items Sold: 2
+P7 08/15/2026 04:40
+`
+
+// CRV 押金行：EE/货号 标明上一件商品是押金，算钱不算件数。
+// 1017 实测：押金 0.10 计入原价，但小票打印件数不含它，旧逻辑件数总多一件。
+func TestParseExportCRVFee(t *testing.T) {
+	p, err := ParseExportReceiptText(exportFeeFixture)
+	if err != nil {
+		t.Fatalf("押金小票解析失败：%v", err)
+	}
+	if len(p.Items) != 3 {
+		t.Fatalf("商品行 = %d，想要 3（果昔 + 押金 + 西瓜）", len(p.Items))
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	fee, ok := byNo["6000001"]
+	if !ok {
+		t.Fatalf("押金行 6000001 没解析出来")
+	}
+	if !fee.IsFee {
+		t.Errorf("押金行应标为费用（IsFee）")
+	}
+	if fee.Name != "CA REDEMP VAL" {
+		t.Errorf("押金行品名 = %q，想要 CA REDEMP VAL（EE/ 行本身不能当品名）", fee.Name)
+	}
+	if fee.NetCents != 10 {
+		t.Errorf("押金行实付 = %d，想要 10", fee.NetCents)
+	}
+	// 果昔的 2.50 折扣照常挂上
+	if byNo["4000004"].DiscountCents != 250 || byNo["4000004"].NetCents != 499 {
+		t.Errorf("果昔 折扣/实付 = %d/%d，想要 250/499",
+			byNo["4000004"].DiscountCents, byNo["4000004"].NetCents)
+	}
+	if p.GrossCents != 1358 || p.SubtotalCents != 1108 || p.TotalCents != 1108 {
+		t.Errorf("原价/小计/总计 = %d/%d/%d，想要 1358/1108/1108（含押金 0.10）",
+			p.GrossCents, p.SubtotalCents, p.TotalCents)
+	}
+	// 件数：押金不算，解析 2 件 = 打印 2 件，不应有警告
+	problems, warnings := Reconcile(p)
+	if len(problems) != 0 || len(warnings) != 0 {
+		t.Errorf("对账应通过且无警告，问题：%v 警告：%v", problems, warnings)
+	}
+	if len(p.Warnings) != 0 {
+		t.Errorf("解析不应有警告，实际：%v", p.Warnings)
+	}
+}
+
 func TestParseExportBareDiscountAttachesToPreviousItem(t *testing.T) {
 	p, err := ParseExportReceiptText(exportBareDiscountFixture)
 	if err != nil {

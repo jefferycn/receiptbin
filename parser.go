@@ -38,6 +38,9 @@ type ParsedItem struct {
 	Taxable        bool   `json:"taxable"`
 	FoodExempt     bool   `json:"food_exempt"`
 	Category       string `json:"category"`
+	// IsFee 是押金/费用行（如 CA CRV 押金）：算钱，不算件数。
+	// 小票打印的件数不含押金行，对账时跳过它，否则件数总多一件。
+	IsFee bool `json:"is_fee"`
 }
 
 // ParsedReceipt 是解析出的一张小票。
@@ -72,9 +75,12 @@ var (
 	itemNoRe = regexp.MustCompile(`(?:^|[^\d])(\d{3,7})(?:\s|$)`)
 	// discountRefRe 匹配折扣行的 0000 开头长号。
 	discountRefRe = regexp.MustCompile(`0{4,}\d+`)
-	storeRe       = regexp.MustCompile(`([A-Za-z][A-Za-z .]*?)\s+#(\d{1,3})\b`)
-	dateRe        = regexp.MustCompile(`(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})`)
-	itemsSoldRe   = regexp.MustCompile(`ITEMS SOLD\s*[:=]?\s*(\d+)`)
+	// feeRefRe 匹配押金引用行：EE/货号，紧跟在 CRV 押金行后面，
+	// 说明上一件商品是押金（算钱，不算件数），不是真正的商品。
+	feeRefRe    = regexp.MustCompile(`^EE/(\d{3,7})$`)
+	storeRe     = regexp.MustCompile(`([A-Za-z][A-Za-z .]*?)\s+#(\d{1,3})\b`)
+	dateRe      = regexp.MustCompile(`(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})`)
+	itemsSoldRe = regexp.MustCompile(`ITEMS SOLD\s*[:=]?\s*(\d+)`)
 	// txnFooterRe 匹配页脚交易号："Whse: 21 Trm: 6 Trn: 487 OPT: 676"。
 	txnFooterRe = regexp.MustCompile(`Trm:\s*(\d+)\s+Trn:\s*(\d+)`)
 	// txnLineRe 匹配交易行："11/14/2026 16:40 21 6 487 676"（日期后依次是门店、收银台、交易号、操作员）。
@@ -207,6 +213,19 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 			continue
 		}
 		upper := strings.ToUpper(line)
+
+		// ---- 押金行引用：EE/货号，上一件商品是 CRV 押金 ----
+		// 押金行算钱不算件数；品名没读出来时用标准名，别让 EE/ 行本身变成品名。
+		if feeRefRe.MatchString(line) {
+			if len(order) > 0 {
+				last := byNo[order[len(order)-1]]
+				last.IsFee = true
+				if last.Name == "" || last.Name == last.ItemNo {
+					last.Name = "CA REDEMP VAL"
+				}
+			}
+			continue
+		}
 
 		// ---- 折扣行：含 -A 且有 0000 开头的长号 ----
 		if strings.Contains(line, "-A") && discountRefRe.MatchString(line) {
@@ -556,6 +575,9 @@ func Reconcile(p *ParsedReceipt) (problems []string, warnings []string) {
 	}
 	qty := 0
 	for _, it := range p.Items {
+		if it.IsFee {
+			continue // 押金行不算件数（小票打印的件数不含它）
+		}
 		qty += it.Qty
 	}
 	if p.ItemCount > 0 && qty != p.ItemCount {
