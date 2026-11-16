@@ -2,7 +2,7 @@ package main
 
 // PDF 导入测试：官网导出小票的解析、会员号剥离、pdftotext 提文本。
 // 夹具全是虚构的示例数据（Riverton #456），不含任何真实购物记录。
-// 示例小票对账：原价 60.45 − 整单立减 3.00 = 小计 57.45，税 1.92，总计 59.37。
+// 示例小票对账：原价 60.45 − 折扣 3.00（袜子单件折扣）= 小计 57.45，税 1.92，总计 59.37。
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 
 // exportFixture 是手写的官网导出小票文本（pdftotext -layout 风格）。
 // 覆盖：E 标志、N/Y 税标、数量行、品名换行（续接与独占一行）、
-// /NO SHOW 备注行、整单折扣行、会员号（剥离用）、P7 12 小时制时间陷阱。
+// /NO SHOW 备注行、无货号折扣行（挂给上一件商品）、会员号（剥离用）、P7 12 小时制时间陷阱。
 const exportFixture = `RIVERTON #456
 1200 Sample Road
 Riverton, CA 94000
@@ -116,12 +116,16 @@ func TestParseExportReceipt(t *testing.T) {
 	if !byNo["3000001"].FoodExempt || byNo["3000001"].Taxable {
 		t.Errorf("GREEN TEA 应为食品免税（E）、非应税（N）")
 	}
-	// 整单立减：计入折扣合计，不挂给任何商品
-	if p.DiscountCents != 300 || p.ReceiptDiscountCents != 300 {
-		t.Errorf("折扣合计/整单立减 = %d/%d，想要 300/300", p.DiscountCents, p.ReceiptDiscountCents)
+	// 无货号折扣挂给上一件商品：3.00 属于袜子（1030 实测），不是整单立减
+	if p.DiscountCents != 300 || p.ReceiptDiscountCents != 0 {
+		t.Errorf("折扣合计/整单立减 = %d/%d，想要 300/0", p.DiscountCents, p.ReceiptDiscountCents)
+	}
+	socks := byNo["3000005"]
+	if socks.DiscountCents != 300 || socks.NetCents != 899 {
+		t.Errorf("袜子 折扣/实付 = %d/%d，想要 300/899", socks.DiscountCents, socks.NetCents)
 	}
 	for _, it := range p.Items {
-		if it.DiscountCents != 0 {
+		if it.ItemNo != "3000005" && it.DiscountCents != 0 {
 			t.Errorf("货号 %s 不应有单件折扣，实际 %d", it.ItemNo, it.DiscountCents)
 		}
 	}
@@ -305,6 +309,85 @@ P7 08/15/2026 04:40
 
 // B 类税商品不能漏：税码不止 N/Y，Concord 小票的胶枪标 B，页脚 (A)/(B) 分开计税。
 // 旧正则只接受 [NY]，B 行整行被丢，连带它的 6 元折扣也挂不上。
+const exportBareDiscountFixture = `RIVERTON #456
+1200 Sample Road
+Riverton, CA 94000
+
+
+21045600999999999999999
+
+Member
+123456789012
+                    4000003 SOCKS 10PK    9.99 Y
+                             /NO SHOW
+                    397261               2.00-
+                             SOC
+                    402 PAPER TOWEL     9.99 Y
+                             SUBTOTAL    17.98
+                             TAX         1.57
+                    ****     TOTAL       19.55
+
+
+                                         CHIP
+XXXXXXXXXXXX4242                         read
+APPROVED - PURCHASE
+AMOUNT: $19.55
+08/15/2026 16:40 456 3 123 789
+VISA                                        19.55
+CHANGE                                           0
+
+
+                (A) A                       1.57
+                TOTAL TAX                   1.57
+TOTAL NUMBER OF ITEMS SOLD = 2
+INSTANT SAVINGS                            $2.00
+08/15/2026 16:40 456 3 123 789
+
+
+                     Thank You!
+                 Please Come Again
+
+     Whse: 456    Trm: 3   Trn: 123   OPT: 789
+
+Items Sold: 2
+P7 08/15/2026 04:40
+`
+
+// 不带货号引用的折扣行属于上一件商品（1030 实测：2.00- 跟在 KBELL 后面，
+// 中间夹 /NO SHOW 备注行；旧逻辑一律按整单立减，错）。
+func TestParseExportBareDiscountAttachesToPreviousItem(t *testing.T) {
+	p, err := ParseExportReceiptText(exportBareDiscountFixture)
+	if err != nil {
+		t.Fatalf("无货号折扣小票解析失败：%v", err)
+	}
+	if len(p.Items) != 2 {
+		t.Fatalf("商品行 = %d，想要 2", len(p.Items))
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	socks := byNo["4000003"]
+	if socks.DiscountCents != 200 || socks.NetCents != 799 {
+		t.Errorf("袜子 折扣/实付 = %d/%d，想要 200/799（2.00 应挂给袜子，不是整单立减）",
+			socks.DiscountCents, socks.NetCents)
+	}
+	if socks.Name != "SOCKS 10PK" {
+		t.Errorf("袜子品名 = %q，想要 SOCKS 10PK（折扣后的 SOC 续行不是品名）", socks.Name)
+	}
+	if p.ReceiptDiscountCents != 0 {
+		t.Errorf("整单立减 = %d，想要 0", p.ReceiptDiscountCents)
+	}
+	for _, w := range p.Warnings {
+		if strings.Contains(w, "整单立减") {
+			t.Errorf("不应有整单立减警告，实际：%v", p.Warnings)
+		}
+	}
+	if problems, _ := Reconcile(p); len(problems) > 0 {
+		t.Errorf("对账应通过，实际问题：%v", problems)
+	}
+}
+
 func TestParseExportBFlagTaxable(t *testing.T) {
 	p, err := ParseExportReceiptText(exportBFlagFixture)
 	if err != nil {

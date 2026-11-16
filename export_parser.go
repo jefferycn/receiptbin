@@ -166,7 +166,11 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 			continue // 页脚：卡号、致谢、Whse 行等，一律忽略
 		}
 
-		// ---- 折扣行：带 /货号 时挂给对应商品；没有货号引用时是整单立减 ----
+		// ---- 折扣行：带 /货号 时挂给对应商品；不带货号时挂给上一件商品 ----
+		// 导出格式的折扣行紧跟在它对应的商品后面（中间可能夹 /NO SHOW 这类备注行，
+		// 不会清空 lastItem）；只有引用货号找不到、或前面没有任何商品时，才算整单立减。
+		// 注意：上一条折扣行会把 lastItem 清掉，所以连续两条无货号折扣时，
+		// 第二条前面没有商品，仍按整单立减处理。
 		if m := exportDiscountRe.FindStringSubmatch(line); m != nil {
 			if amt, ok := parseMoneyToCents(m[1]); ok {
 				attached := false
@@ -178,6 +182,11 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 					} else {
 						p.Warnings = append(p.Warnings, "折扣行引用货号 "+ref[1]+" 找不到对应商品，已按整单立减处理")
 					}
+				} else if lastItem != nil {
+					// 不带货号引用的折扣属于上一件商品（1030 这张：2.00- 跟在 KBELL 后面）。
+					lastItem.DiscountCents += amt
+					lastItem.NetCents -= amt
+					attached = true
 				}
 				if !attached {
 					receiptDiscount += amt
