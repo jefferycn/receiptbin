@@ -39,7 +39,10 @@ var (
 	// exportWhseRe 匹配页脚门店号："Whse: 663"（页眉门店行读不出时的兜底）。
 	exportWhseRe = regexp.MustCompile(`Whse:\s*(\d{1,3})\b`)
 	// exportContinuationRe 匹配品名续行：大写单词，如 NAPKINS、BLUEBERRIES。
-	exportContinuationRe = regexp.MustCompile(`^[A-Z][A-Z0-9 .&/'-]{0,40}$`)
+	// exportContinuationRe 匹配品名续行：无金额的大写单词行。
+	// 首字符可以是数字（"1L"、"2PK" 这类单位续行，0918 实测）；
+	// 是否含字母在调用处再判断，避免纯数字行（条码、会员号）被当成品名。
+	exportContinuationRe = regexp.MustCompile(`^[A-Z0-9][A-Z0-9 .&/'-]{0,40}$`)
 )
 
 // exportSkipPrefixes 是绝不作品名续行的行首（页脚杂项）。
@@ -110,9 +113,10 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 	receiptDiscount := 0 // 无货号引用的整单立减部分
 	totalFromAmount := 0
 	pendingQty := 0
-	inItems := true // SUBTOTAL 之后是合计与页脚，不再有商品行
+	pendingName := "" // 提前/孤儿品名续行，留给下一件无品名商品用
+	inItems := true   // SUBTOTAL 之后是合计与页脚，不再有商品行
 	var lastItem *ParsedItem
-	for _, raw := range lines {
+	for i, raw := range lines {
 		line := strings.TrimSpace(raw)
 		if line == "" {
 			continue
@@ -202,6 +206,12 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 			foodExempt := m[1] == "E"
 			itemNo := m[2]
 			name := cleanItemName(m[3])
+			// 无品名商品行：用之前攒下的提前/孤儿续行当品名；
+			// 不管用没用上，攒下的只对紧跟的这一件有效，用完即清。
+			if name == "" && pendingName != "" {
+				name = pendingName
+			}
+			pendingName = ""
 			extended, ok := parseMoneyToCents(m[4])
 			if !ok {
 				continue
@@ -259,8 +269,19 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 			continue
 		}
 
-		// ---- 品名续行：无金额的大写单词行，接在上一件商品的品名后面 ----
-		if lastItem != nil && exportContinuationRe.MatchString(line) && findAmounts(line) == nil {
+		// ---- 品名续行：无金额的大写单词行（须含字母，纯数字行不算） ----
+		// 三种归属：
+		// 1. 正常续行：接在上一件商品的品名后面（PAPER + NAPKINS）。
+		// 2. 提前的品名：续行后面紧跟一个无品名商品行、且续行本身较长
+		//    （多词或 >4 字符）时，它其实是下一件商品的品名——PDF 排版
+		//    把它提前了一行（0918 实测：NUBZ DOG 属于 921485、
+		//    KSCOCOWTR 属于 1495250）；先攒起来，等下一件商品行用。
+		//    短片段（ORG、1L、2PK）是上一件的单位/后缀，照常续接。
+		// 3. 孤儿续行：上一件商品不存在时（如折扣行刚把 lastItem 清掉），
+		//    攒起来给下一件无品名商品用（BOBS → BOBS OATMEAL；
+		//    CA REDEMP VAL → 押金行的品名）。只在商品区内攒，页眉地址行不算。
+		if exportContinuationRe.MatchString(line) && findAmounts(line) == nil &&
+			strings.ContainsAny(line, "ABCDEFGHIJKLMNOPQRSTUVWXYZ") {
 			skip := false
 			for _, pre := range exportSkipPrefixes {
 				if strings.HasPrefix(upper, pre) {
@@ -269,6 +290,16 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 				}
 			}
 			if skip {
+				continue
+			}
+			if lastItem == nil {
+				if len(order) > 0 {
+					pendingName = stripTrailingTaxFlag(line)
+				}
+				continue
+			}
+			if (strings.Contains(line, " ") || len(line) > 4) && nextLineIsNamelessItem(lines, i) {
+				pendingName = line
 				continue
 			}
 			if lastItem.Name == "" {
@@ -324,4 +355,26 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 		p.Warnings = append(p.Warnings, "没读出门店，请手动填写")
 	}
 	return p, nil
+}
+
+// nextLineIsNamelessItem 看下一行是不是无品名商品行（品名续行归属判断用）。
+func nextLineIsNamelessItem(lines []string, i int) bool {
+	if i+1 >= len(lines) {
+		return false
+	}
+	next := strings.TrimSpace(lines[i+1])
+	m := exportItemRe.FindStringSubmatch(next)
+	return m != nil && cleanItemName(m[3]) == ""
+}
+
+// stripTrailingTaxFlag 去掉行尾的税码（"CA REDEMP VAL N" → "CA REDEMP VAL"）。
+// 只去 N/Y/B 三种实测过的税码，避免把 "VITAMIN D" 这类真品名截断。
+func stripTrailingTaxFlag(s string) string {
+	if len(s) > 2 && s[len(s)-2] == ' ' {
+		switch s[len(s)-1] {
+		case 'N', 'Y', 'B':
+			return s[:len(s)-2]
+		}
+	}
+	return s
 }

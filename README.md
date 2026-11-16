@@ -121,7 +121,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/jso
 ```bash
 go build ./...   # 需要 Go 1.27+
 go vet ./...
-go test ./...    # 56 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离、商品词典与 API、盯价清单 API、价格观察 API、月份列表、PDF 单件折扣、P7 时间陷阱、按日判重、交易号判重、覆盖保存、旧库升级、小票列表、B 类税码、无货号折扣归属、CRV 押金行
+go test ./...    # 57 个测试：纸质解析器、对账、30 天提醒逻辑、盯价、种子数据、PDF 导出解析与会员号剥离、商品词典与 API、盯价清单 API、价格观察 API、月份列表、PDF 单件折扣、P7 时间陷阱、按日判重、交易号判重、覆盖保存、旧库升级、小票列表、B 类税码、无货号折扣归属、CRV 押金行、品名交错
 ```
 
 OCR 需要本机装 tesseract（`tesseract-ocr` + 英文数据），否则照片上传会报 OCR 失败；PDF 导入需要 `pdftotext`（poppler-utils），缺失时 PDF 上传会明确报错；其余功能不受影响。

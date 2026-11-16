@@ -445,6 +445,113 @@ func TestParseExportCRVFee(t *testing.T) {
 	}
 }
 
+const exportInterleavedFixture = `RIVERTON #456
+1200 Sample Road
+Riverton, CA 94000
+
+
+21045600999999999999999
+
+Member
+123456789012
+E                   4000005 TEA BAGS      12.49 N
+                    4000006 NAPKINS       11.99 Y
+                             NUBZ DOG
+                    4000007               15.99 Y
+                             CHW
+                             COCONUT WTR
+E                   4000008               20.99 N
+                             1L
+E                   4000009 CABBAGE       2.99 N
+F                   4000010 GLOVES        21.99 Y
+E                   4000011 GREENS        6.99 N
+                    391029 /4000011       2.00-
+                             BOBS
+E                   4000012               12.49 N
+                             OATMEAL
+                             SPICY
+E                   4000013               13.99 N
+                             WONTON
+                             SUBTOTAL    117.91
+                             TAX         5.00
+                    ****     TOTAL       122.91
+
+
+                                         CHIP
+XXXXXXXXXXXX4242                         read
+APPROVED - PURCHASE
+AMOUNT: $122.91
+08/15/2026 16:40 456 3 123 789
+VISA                                       122.91
+CHANGE                                           0
+
+
+                (A) A                       5.00
+                TOTAL TAX                   5.00
+TOTAL NUMBER OF ITEMS SOLD = 9
+INSTANT SAVINGS                            $2.00
+08/15/2026 16:40 456 3 123 789
+
+
+                     Thank You!
+                 Please Come Again
+
+     Whse: 456    Trm: 3   Trn: 123   OPT: 789
+
+Items Sold: 9
+P7 08/15/2026 04:40
+`
+
+// 品名交错（0918 实测）：PDF 排版把下一件商品的品名提前了一行，
+// 旧逻辑一律续接到上一件，导致品名串行（NAPKINS 沾上 NUBZ DOG、
+// 狗咬胶沾上 KSCOCOWTR）；"1L" 这类数字开头续行还因正则不匹配被直接丢掉。
+func TestParseExportInterleavedNames(t *testing.T) {
+	p, err := ParseExportReceiptText(exportInterleavedFixture)
+	if err != nil {
+		t.Fatalf("交错品名小票解析失败：%v", err)
+	}
+	if len(p.Items) != 9 {
+		t.Fatalf("商品行 = %d，想要 9", len(p.Items))
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	// 提前的品名属于下一件，不沾上一件
+	if byNo["4000006"].Name != "NAPKINS" {
+		t.Errorf("4000006 品名 = %q，想要 NAPKINS（NUBZ DOG 不属于它）", byNo["4000006"].Name)
+	}
+	if byNo["4000007"].Name != "NUBZ DOG CHW" {
+		t.Errorf("4000007 品名 = %q，想要 NUBZ DOG CHW", byNo["4000007"].Name)
+	}
+	// 数字开头续行 "1L" 也要续接
+	if byNo["4000008"].Name != "COCONUT WTR 1L" {
+		t.Errorf("4000008 品名 = %q，想要 COCONUT WTR 1L", byNo["4000008"].Name)
+	}
+	// 孤儿续行 BOBS（折扣行之后）属于下一件无品名商品
+	if byNo["4000012"].Name != "BOBS OATMEAL" {
+		t.Errorf("4000012 品名 = %q，想要 BOBS OATMEAL", byNo["4000012"].Name)
+	}
+	if byNo["4000013"].Name != "SPICY WONTON" {
+		t.Errorf("4000013 品名 = %q，想要 SPICY WONTON", byNo["4000013"].Name)
+	}
+	if byNo["4000011"].DiscountCents != 200 || byNo["4000011"].NetCents != 499 {
+		t.Errorf("4000011 折扣/实付 = %d/%d，想要 200/499",
+			byNo["4000011"].DiscountCents, byNo["4000011"].NetCents)
+	}
+	if p.GrossCents != 11991 || p.SubtotalCents != 11791 || p.TaxCents != 500 || p.TotalCents != 12291 {
+		t.Errorf("原价/小计/税/总计 = %d/%d/%d/%d，想要 11991/11791/500/12291",
+			p.GrossCents, p.SubtotalCents, p.TaxCents, p.TotalCents)
+	}
+	problems, warnings := Reconcile(p)
+	if len(problems) != 0 || len(warnings) != 0 {
+		t.Errorf("对账应通过且无警告，问题：%v 警告：%v", problems, warnings)
+	}
+	if len(p.Warnings) != 0 {
+		t.Errorf("解析不应有警告，实际：%v", p.Warnings)
+	}
+}
+
 func TestParseExportBareDiscountAttachesToPreviousItem(t *testing.T) {
 	p, err := ParseExportReceiptText(exportBareDiscountFixture)
 	if err != nil {
