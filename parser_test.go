@@ -248,6 +248,56 @@ func TestParseTxnRefFromTxnLine(t *testing.T) {
 	}
 }
 
+// 纸质小票的 B 类税商品：金额后标 B 也算应税（与导出格式的 B 税码对应）。
+func TestParseOCRBFlagTaxable(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+1000 Example Blvd
+Fremont, CA 94536
+(510) 555-0100
+1000016 GLUE GUN 29.99 B
+1000017 PAPER TOWEL 9.99 A
+E 1000018 ORANGE JUICE 8.99
+SUBTOTAL 48.97
+TAX 4.29
+**** TOTAL 53.26
+XXXXXXXXXXXX4242 H
+APPROVED - Purchase
+AMOUNT: $53.26
+Visa 53.26
+CHANGE 0.00
+A 8.75% TAX 4.29
+TOTAL TAX 4.29
+TOTAL NUMBER OF ITEMS SOLD = 3
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatalf("B 税码纸质小票解析失败：%v", err)
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	gun, ok := byNo["1000016"]
+	if !ok {
+		t.Fatalf("B 税码商品 1000016 没解析出来")
+	}
+	if !gun.Taxable {
+		t.Errorf("金额后标 B 的商品应为应税")
+	}
+	if !byNo["1000017"].Taxable {
+		t.Errorf("金额后标 A 的商品应为应税")
+	}
+	if byNo["1000018"].Taxable || !byNo["1000018"].FoodExempt {
+		t.Errorf("ORANGE JUICE 应为食品免税、非应税")
+	}
+	problems, _ := Reconcile(p)
+	if len(problems) != 0 {
+		t.Errorf("对账应通过，问题：%v", problems)
+	}
+}
+
 func TestReconcileMismatch(t *testing.T) {
 	p, err := ParseReceiptText(cleanFixture)
 	if err != nil {

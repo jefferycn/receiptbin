@@ -29,11 +29,13 @@ var (
 	exportDiscountRe = regexp.MustCompile(`(\d{1,4}[.,]\d{2})-\s*$`)
 	// exportDiscountRefRe 匹配折扣行里的货号引用："/2056254" 或 "/ 1951699"。
 	exportDiscountRefRe = regexp.MustCompile(`/\s*(\d{3,7})\b`)
-	// exportItemRe 匹配商品行：可选单字母前缀、3–7 位货号、品名（可空）、金额、可选 N/Y 后缀。
+	// exportItemRe 匹配商品行：可选单字母前缀、3–7 位货号、品名（可空）、金额、可选税码后缀。
+	// 税码不止 N/Y：Concord 小票上有 B 类税（页脚 (A) A / (B) B 分开计税），
+	// 所以后缀接受任意单个大写字母；只有 N 是免税，其余都算应税。
 	// 前缀不止 E：F 是 FSA 合格商品（如卫生用品、绷带），只认 E 会把整行漏掉（2026-11-14 实测）。
 	// 只有 E 算食品免税，其他字母只作前缀接受、不记标志。
 	// 货号有 3 位的（如夹具里的 402）；1–2 位不收，避免把价格、重量误认成货号。
-	exportItemRe = regexp.MustCompile(`^([A-Z])?\s*(\d{3,7})\s+(.*?)\s*(\d{1,4}[.,]\d{2})\s*([NY])?\s*$`)
+	exportItemRe = regexp.MustCompile(`^([A-Z])?\s*(\d{3,7})\s+(.*?)\s*(\d{1,4}[.,]\d{2})\s*([A-Z])?\s*$`)
 	// exportWhseRe 匹配页脚门店号："Whse: 663"（页眉门店行读不出时的兜底）。
 	exportWhseRe = regexp.MustCompile(`Whse:\s*(\d{1,3})\b`)
 	// exportContinuationRe 匹配品名续行：大写单词，如 NAPKINS、BLUEBERRIES。
@@ -195,7 +197,8 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 			if !ok {
 				continue
 			}
-			taxable := m[5] == "Y"
+			// 税码只有 N 是免税；Y、B 等任意字母都算应税（B 类税在页脚单独计，如 (B) B 0.36）。
+			taxable := m[5] != "" && m[5] != "N"
 			qty := 1
 			unit := extended
 			if pendingQty > 0 {

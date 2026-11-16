@@ -259,6 +259,94 @@ func TestParseExportItemDiscounts(t *testing.T) {
 	}
 }
 
+const exportBFlagFixture = `RIVERTON #456
+1200 Sample Road
+Riverton, CA 94000
+
+
+21045600999999999999999
+
+Member
+123456789012
+                    4000002 GLUE GUN      29.99 B
+                    388695 / 4000002      6.00-
+                    402 PAPER TOWEL     9.99 Y
+E                   4032 WATERMELON     5.99 N
+                             SUBTOTAL    39.97
+                             TAX         3.66
+                    ****     TOTAL       43.63
+
+
+                                         CHIP
+XXXXXXXXXXXX4242                         read
+APPROVED - PURCHASE
+AMOUNT: $43.63
+08/15/2026 16:40 456 3 123 789
+VISA                                        43.63
+CHANGE                                           0
+
+
+                (A) A                       3.30
+                (B) B                       0.36
+                TOTAL TAX                   3.66
+TOTAL NUMBER OF ITEMS SOLD = 3
+INSTANT SAVINGS                            $6.00
+08/15/2026 16:40 456 3 123 789
+
+
+                     Thank You!
+                 Please Come Again
+
+     Whse: 456    Trm: 3   Trn: 123   OPT: 789
+
+Items Sold: 3
+P7 08/15/2026 04:40
+`
+
+// B 类税商品不能漏：税码不止 N/Y，Concord 小票的胶枪标 B，页脚 (A)/(B) 分开计税。
+// 旧正则只接受 [NY]，B 行整行被丢，连带它的 6 元折扣也挂不上。
+func TestParseExportBFlagTaxable(t *testing.T) {
+	p, err := ParseExportReceiptText(exportBFlagFixture)
+	if err != nil {
+		t.Fatalf("B 税码小票解析失败：%v", err)
+	}
+	if len(p.Items) != 3 {
+		t.Fatalf("商品行 = %d，想要 3（B 税码行不能漏）", len(p.Items))
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	gun, ok := byNo["4000002"]
+	if !ok {
+		t.Fatalf("B 税码商品 4000002 没解析出来")
+	}
+	if gun.Name != "GLUE GUN" {
+		t.Errorf("4000002 品名 = %q，想要 GLUE GUN", gun.Name)
+	}
+	// B 不是 N：算应税；折扣 6.00 应挂给它，实付 23.99
+	if !gun.Taxable {
+		t.Errorf("B 税码商品应为应税")
+	}
+	if gun.NetCents != 2399 {
+		t.Errorf("4000002 实付 = %d，想要 2399（29.99 − 6.00 折扣）", gun.NetCents)
+	}
+	if !byNo["402"].Taxable {
+		t.Errorf("PAPER TOWEL 应为应税（Y）")
+	}
+	if byNo["4032"].Taxable || !byNo["4032"].FoodExempt {
+		t.Errorf("WATERMELON 应为食品免税、非应税")
+	}
+	if p.GrossCents != 4597 || p.SubtotalCents != 3997 || p.TaxCents != 366 || p.TotalCents != 4363 {
+		t.Errorf("原价/小计/税/总计 = %d/%d/%d/%d，想要 4597/3997/366/4363",
+			p.GrossCents, p.SubtotalCents, p.TaxCents, p.TotalCents)
+	}
+	problems, _ := Reconcile(p)
+	if len(problems) != 0 {
+		t.Errorf("对账应通过，问题：%v", problems)
+	}
+}
+
 func TestParseExportFPrefixAndShortItemNo(t *testing.T) {
 	p, err := ParseExportReceiptText(exportFPrefixFixture)
 	if err != nil {

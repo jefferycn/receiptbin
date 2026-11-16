@@ -306,7 +306,8 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 		// （OCR 杂字可能夹在中间，只要求 E 后面到货号之间没有其他字母数字）。
 		before := line[:m[2]]
 		foodExempt := regexp.MustCompile(`E[^A-Za-z0-9]*$`).MatchString(before)
-		// A 标志：金额后面紧跟 A（应税）。金额后可能有 OCR 杂字，只看金额后前 4 个字符。
+		// A/B 标志：金额后面紧跟 A 或 B（应税）。金额后可能有 OCR 杂字，只看金额后前 4 个字符。
+		// 纸质小票的应税标记是 A；B 类税的商品（如胶枪）在纸质小票上标 B。
 		afterAmt := ""
 		if amtIdx != nil {
 			afterAmt = restNorm[amtIdx[1]:]
@@ -314,7 +315,7 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 				afterAmt = afterAmt[:4]
 			}
 		}
-		taxable := strings.Contains(afterAmt, "A")
+		taxable := strings.Contains(afterAmt, "A") || strings.Contains(afterAmt, "B")
 
 		if ex, ok := byNo[itemNo]; ok {
 			// 同货号重复出现：数量 +1（篮球一次买 5 个就是 5 行）。
