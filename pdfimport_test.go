@@ -636,6 +636,92 @@ func TestParseExportUnresolvedRefFallsBackToPreviousItem(t *testing.T) {
 	}
 }
 
+const exportThousandsFixture = `RIVERTON #456
+1200 Sample Road
+Riverton, CA 94000
+
+
+21045600999999999999999
+
+Member
+123456789012
+E                   4000030 TV           1,299.99 Y
+                    4000031 SOCKS        11.99 Y
+E                   4000032 WATER        0.00 N
+                             SUBTOTAL    1,311.98
+                             TAX         120.00
+                    ****     TOTAL       1,431.98
+
+
+                                         CHIP
+XXXXXXXXXXXX4242                         read
+APPROVED - PURCHASE
+AMOUNT: $1,431.98
+08/15/2026 16:40 456 3 123 789
+VISA                                     1,431.98
+CHANGE                                           0
+
+
+                (A) A                     120.00
+                TOTAL TAX                 120.00
+TOTAL NUMBER OF ITEMS SOLD = 2
+INSTANT SAVINGS                            $0.00
+08/15/2026 16:40 456 3 123 789
+
+
+                     Thank You!
+                 Please Come Again
+
+     Whse: 456    Trm: 3   Trn: 123   OPT: 789
+
+Items Sold: 2
+P7 08/15/2026 04:40
+`
+
+// 千分位逗号与 0.00 元商品（0629 实测）：TOTAL 1,008.43 曾被读成 8.43
+// （逗号被当成小数点）；0.00 元的瓶装水收银机不计入件数，解析出 11 件对打印 10 件。
+func TestParseExportThousandsAndZeroPrice(t *testing.T) {
+	p, err := ParseExportReceiptText(exportThousandsFixture)
+	if err != nil {
+		t.Fatalf("千分位小票解析失败：%v", err)
+	}
+	if len(p.Items) != 3 {
+		t.Fatalf("商品行 = %d，想要 3（电视 + 袜子 + 0 元水）", len(p.Items))
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	if byNo["4000030"].UnitPriceCents != 129999 {
+		t.Errorf("电视单价 = %d，想要 129999（1,299.99 不是 299.99）", byNo["4000030"].UnitPriceCents)
+	}
+	if p.GrossCents != 131198 || p.SubtotalCents != 131198 || p.TaxCents != 12000 || p.TotalCents != 143198 {
+		t.Errorf("原价/小计/税/总计 = %d/%d/%d/%d，想要 131198/131198/12000/143198",
+			p.GrossCents, p.SubtotalCents, p.TaxCents, p.TotalCents)
+	}
+	// 件数：0.00 元的水不算，解析 2 件 = 打印 2 件，不应有警告
+	problems, warnings := Reconcile(p)
+	if len(problems) != 0 || len(warnings) != 0 {
+		t.Errorf("对账应通过且无警告，问题：%v 警告：%v", problems, warnings)
+	}
+	if len(p.Warnings) != 0 {
+		t.Errorf("解析不应有警告，实际：%v", p.Warnings)
+	}
+}
+
+// findAmounts 遇千分位逗号应读出完整金额，不把逗号当小数点。
+func TestFindAmountsThousandsSeparator(t *testing.T) {
+	amts := findAmounts("****    TOTAL           1,008.43")
+	if len(amts) != 1 || amts[0] != 100843 {
+		t.Errorf("findAmounts(1,008.43) = %v，想要 [100843]", amts)
+	}
+	// 小数点逗号（OCR 误读）照常按小数点处理
+	amts = findAmounts("TOTAL 12,49")
+	if len(amts) != 1 || amts[0] != 1249 {
+		t.Errorf("findAmounts(12,49) = %v，想要 [1249]", amts)
+	}
+}
+
 func TestParseExportBareDiscountAttachesToPreviousItem(t *testing.T) {
 	p, err := ParseExportReceiptText(exportBareDiscountFixture)
 	if err != nil {

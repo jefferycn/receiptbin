@@ -106,6 +106,9 @@ func extractTxnRef(lines []string) (terminal, transaction string) {
 // normalizeAmountText 修正常见的金额 OCR 误读：
 // "5 !00" → "5.00"（! 是 . 的误读），"1O.99" → "10.99"（字母 O 是 0 的误读）。
 func normalizeAmountText(s string) string {
+	// 千分位逗号先去掉（"1,008.43" → "1008.43"），否则逗号会被当成小数点，
+	// 金额读成 8.43；小数点逗号（"12,49"）不在千分位格式里，不受影响。
+	s = stripThousandsCommas(s)
 	// "5 !00" / "5!00"：感叹号前后可能有空格，先整体处理
 	s = regexp.MustCompile(`(\d)\s*!\s*(\d)`).ReplaceAllString(s, `$1.$2`)
 	var b strings.Builder
@@ -577,6 +580,9 @@ func Reconcile(p *ParsedReceipt) (problems []string, warnings []string) {
 	for _, it := range p.Items {
 		if it.IsFee {
 			continue // 押金行不算件数（小票打印的件数不含它）
+		}
+		if it.UnitPriceCents == 0 {
+			continue // 0.00 元商品不算件数（收银机不把它计入 ITEMS SOLD，0629 实测）
 		}
 		qty += it.Qty
 	}

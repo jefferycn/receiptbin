@@ -523,6 +523,7 @@ func TestParseMoneyToCents(t *testing.T) {
 	cases := map[string]int{
 		"12.49": 1249, "3.79": 379, "$258.36": 25836,
 		"12,49": 1249, "5": 500, "0.00": 0, "-5.00": -500,
+		"1,008.43": 100843, "1,234,567.89": 123456789,
 	}
 	for in, want := range cases {
 		got, ok := parseMoneyToCents(in)

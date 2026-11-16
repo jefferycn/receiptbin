@@ -66,10 +66,22 @@ func truncateRunes(s string, n int) string {
 
 // ---------- 金额：全程整数分，避免浮点误差 ----------
 
-// parseMoneyToCents 把 "12.49" / "12,49" / "$12.49" 转成分；失败返回 ok=false。
+// thousandsRe 匹配带千分位逗号的金额（1,008.43 / 12,345.67）。
+var thousandsRe = regexp.MustCompile(`\d{1,3}(?:,\d{3})+\.\d{2}`)
+
+// stripThousandsCommas 去掉金额里的千分位逗号（"1,008.43" → "1008.43"）。
+// 小数点逗号（"12,49"）不匹配这个正则，不动，由后续逻辑按小数点处理。
+func stripThousandsCommas(s string) string {
+	return thousandsRe.ReplaceAllStringFunc(s, func(m string) string {
+		return strings.ReplaceAll(m, ",", "")
+	})
+}
+
+// parseMoneyToCents 把 "12.49" / "12,49" / "$12.49" / "1,008.43" 转成分；失败返回 ok=false。
 func parseMoneyToCents(s string) (cents int, ok bool) {
 	s = strings.TrimSpace(s)
 	s = strings.TrimPrefix(s, "$")
+	s = stripThousandsCommas(s)
 	s = strings.ReplaceAll(s, ",", ".")
 	neg := false
 	if strings.HasPrefix(s, "-") {
