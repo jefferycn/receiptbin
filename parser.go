@@ -77,10 +77,20 @@ var (
 	discountRefRe = regexp.MustCompile(`0{4,}\d+`)
 	// feeRefRe 匹配押金引用行：EE/货号，紧跟在 CRV 押金行后面，
 	// 说明上一件商品是押金（算钱，不算件数），不是真正的商品。
-	feeRefRe    = regexp.MustCompile(`^EE/(\d{3,7})$`)
-	storeRe     = regexp.MustCompile(`([A-Za-z][A-Za-z .]*?)\s+#(\d{1,3})\b`)
-	dateRe      = regexp.MustCompile(`(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})`)
-	itemsSoldRe = regexp.MustCompile(`ITEMS SOLD\s*[:=]?\s*(\d+)`)
+	feeRefRe = regexp.MustCompile(`^EE/(\d{3,7})$`)
+	storeRe  = regexp.MustCompile(`([A-Za-z][A-Za-z .]*?)\s+#(\d{1,3})\b`)
+	// storeFallbackRe 是门店行的兜底：# 常被读成 t（"Danville t21"），
+	// 或整个丢掉（"Danville 21"）。只在票头前 10 行、整行只含字母/空格/
+	// 数字时才认，避免把商品行、合计行误当成门店。
+	// 注意 t 前面必须有空格：否则 "Fremont 123" 的店名尾巴 t 会被当成分隔符，
+	// 读成 FREMON #123。
+	storeFallbackRe = regexp.MustCompile(`^([A-Za-z][A-Za-z .]{1,30}?)(?:\s*#|\s+[tT])?\s*(\d{1,3})$`)
+	// datelessTxnRe 匹配没了日期的交易行："16:20 21 3 249 498"
+	// （日期常被黑条盖掉读不出，但时间+门店+收银台+交易号+操作员还在）。
+	// 只有门店号与已解析的门店一致时才认，见 ParseReceiptText。
+	datelessTxnRe = regexp.MustCompile(`\b\d{1,2}:\d{2}\s+(\d{1,3})\s+(\d{1,3})\s+(\d{1,6})\s+(\d{1,4})\b`)
+	dateRe        = regexp.MustCompile(`(\d{1,2})/(\d{1,2})/(\d{4})\s+(\d{1,2}):(\d{2})`)
+	itemsSoldRe   = regexp.MustCompile(`ITEMS SOLD\s*[:=]?\s*(\d+)`)
 	// txnFooterRe 匹配页脚交易号："Whse: 21 Trm: 6 Trn: 487 OPT: 676"。
 	txnFooterRe = regexp.MustCompile(`Trm:\s*(\d+)\s+Trn:\s*(\d+)`)
 	// txnLineRe 匹配交易行："11/14/2026 16:40 21 6 487 676"（日期后依次是门店、收银台、交易号、操作员）。
@@ -182,6 +192,20 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 			}
 		}
 	}
+	// 门店兜底：# 读坏时（"Danville t21"、"Danville 21"）用票头行的
+	// “城市名 + 1–3 位数字”认。只扫前 10 行且整行匹配，避免误认商品行。
+	if p.Store == "" {
+		for i, line := range lines {
+			if i >= 10 {
+				break
+			}
+			if m := storeFallbackRe.FindStringSubmatch(strings.TrimSpace(line)); m != nil {
+				p.Store = strings.ToUpper(strings.TrimSpace(m[1]))
+				p.StoreNo = m[2]
+				break
+			}
+		}
+	}
 	// 日期取最后一个匹配：底部 "BP 09/12/2026 14:25" 是权威时间，
 	// 前面的时间戳行常被 OCR 读残；P7 行是 12 小时制（如 04:40），不能用。
 	for _, line := range lines {
@@ -203,6 +227,16 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 
 	// 收银台号与交易号：页脚或交易行读出，判重用（读不出时为空）。
 	p.TerminalNo, p.TransactionNo = extractTxnRef(lines)
+	// 兜底：日期被黑条盖掉的交易行（"16:20 21 3 249 498"），
+	// 门店号与已解析的门店一致时才认，避免把其他数字行误当交易行。
+	if p.TerminalNo == "" && p.StoreNo != "" {
+		for _, line := range lines {
+			if m := datelessTxnRe.FindStringSubmatch(line); m != nil && m[1] == p.StoreNo {
+				p.TerminalNo, p.TransactionNo = m[2], m[3]
+				break
+			}
+		}
+	}
 
 	// 再逐行分类：折扣行 → 合计行 → 商品行。
 	var order []string // 货号首次出现顺序
@@ -240,8 +274,13 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 			}
 			last := byNo[order[len(order)-1]]
 			ref := discountItemRef(line)
-			if ref != "" && ref != last.ItemNo &&
-				!strings.HasPrefix(last.ItemNo, ref) && !strings.HasPrefix(ref, last.ItemNo) {
+			// "/" 常被读成 "1"，引用号会多一位前缀 1（如 /2014296 →
+			// 12014296，截断后 1201429）；比较时先去掉这个可能的前缀 1，
+			// 否则明明挂对了商品还报一条假警告。
+			refCmp := strings.TrimPrefix(ref, "1")
+			if ref != "" && ref != last.ItemNo && refCmp != last.ItemNo &&
+				!strings.HasPrefix(last.ItemNo, ref) && !strings.HasPrefix(ref, last.ItemNo) &&
+				!strings.HasPrefix(last.ItemNo, refCmp) && !strings.HasPrefix(refCmp, last.ItemNo) {
 				p.Warnings = append(p.Warnings, "折扣行引用货号 "+ref+" 与上一件商品 "+last.ItemNo+" 不一致，已按上一件处理")
 			}
 			amt, ok := lastAmount(line)
@@ -272,7 +311,9 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 			}
 			continue
 		}
-		if strings.Contains(upper, "INSTANT SAVINGS") {
+		// "INSTANT" 常被读残（如 "et SAVINGS"），只认 "SAVINGS" 就够了：
+		// 小票上没有别的带 SAVINGS 的行。
+		if strings.Contains(upper, "SAVINGS") {
 			if amt, ok := lastAmount(line); ok {
 				p.SavingsCents = amt
 			}
@@ -309,21 +350,32 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 		rest := line[m[3]:]
 		restNorm := normalizeAmountText(rest)
 		amts := findAmounts(rest)
-		if len(amts) == 0 {
-			continue // 有数字没金额：地址、电话、条码等，不是商品
-		}
-		// 品名 = 货号与金额之间的文字（用规范化后的串切，避免长度错位）
 		amtIdx := amountRe.FindStringIndex(restNorm)
-		name := restNorm
-		if amtIdx != nil {
-			name = restNorm[:amtIdx[0]]
+		var name string
+		price := 0
+		if len(amts) == 0 {
+			// 有货号没金额：价格可能被折痕/污渍盖住读不出。
+			// 只当货号后面紧跟大写品名时才留行（地址、电话、条码行没有
+			// 大写品名），单价记 0 并警告，确认页可手填单价（行也可删除），
+			// 而不是整行悄悄丢掉、对账时只剩一笔对不上的差额。
+			name = probableItemName(rest)
+			if name == "" {
+				continue // 地址、电话、条码等，不是商品
+			}
+			p.Warnings = append(p.Warnings, "货号 "+itemNo+"（"+name+"）的价格没读出来，请手动填写")
+		} else {
+			// 品名 = 货号与金额之间的文字（用规范化后的串切，避免长度错位）
+			name = restNorm
+			if amtIdx != nil {
+				name = restNorm[:amtIdx[0]]
+			}
+			name = cleanItemName(name)
+			if name == "" {
+				name = itemNo // 品名读不出来时先用货号占位，确认页可改
+				p.Warnings = append(p.Warnings, "货号 "+itemNo+" 的品名没读出来")
+			}
+			price = amts[0]
 		}
-		name = cleanItemName(name)
-		if name == "" {
-			name = itemNo // 品名读不出来时先用货号占位，确认页可改
-			p.Warnings = append(p.Warnings, "货号 "+itemNo+" 的品名没读出来")
-		}
-		price := amts[0]
 		// E 标志：货号前面（行首到货号之间）的最后一个字母是 E
 		// （OCR 杂字可能夹在中间，只要求 E 后面到货号之间没有其他字母数字）。
 		before := line[:m[2]]
@@ -341,9 +393,14 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 
 		if ex, ok := byNo[itemNo]; ok {
 			// 同货号重复出现：数量 +1（篮球一次买 5 个就是 5 行）。
-			if ex.UnitPriceCents != price {
+			// 单价为 0 的那次是价格没读出来，不算不一致。
+			if price > 0 && ex.UnitPriceCents > 0 && ex.UnitPriceCents != price {
 				p.Warnings = append(p.Warnings, "货号 "+itemNo+" 在同一小票里单价不一致（"+
 					formatCents(ex.UnitPriceCents)+" / "+formatCents(price)+"），按第一次计")
+			}
+			if ex.UnitPriceCents == 0 && price > 0 {
+				// 第一次出现时价格没读出，这次读出了：补上单价
+				ex.UnitPriceCents = price
 			}
 			ex.Qty++
 			ex.NetCents += price
@@ -383,11 +440,18 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 	}
 	p.DiscountCents = discountTotal
 
+	// 单价前导 1 纠错：折痕竖纹常被读成 1（如 16.99 → 116.99），
+	// 原价正好多出 $100 时尝试修掉（见 repairLeadingOne）。
+	repairLeadingOne(p)
+
 	// 总价兜底：TOTAL 行没读出时先用 AMOUNT，再用小计+税推导。
 	if p.TotalCents == 0 {
 		if totalFromAmount > 0 {
 			p.TotalCents = totalFromAmount
-			p.Warnings = append(p.Warnings, "TOTAL 行没读出来，用 AMOUNT 金额代替，请核对")
+			// AMOUNT 与小计+税一致时交叉验证通过，不警告；不一致才提醒核对。
+			if !(p.SubtotalCents > 0 && totalFromAmount == p.SubtotalCents+p.TaxCents) {
+				p.Warnings = append(p.Warnings, "TOTAL 行没读出来，用 AMOUNT 金额代替，请核对")
+			}
 		} else if p.SubtotalCents > 0 {
 			p.TotalCents = p.SubtotalCents + p.TaxCents
 			p.TotalDerived = true
@@ -431,11 +495,150 @@ func discountItemRef(line string) string {
 	return ""
 }
 
+// probableItemName 从货号后的文字里提取疑似品名：连续的大写单词
+// （如 "FLAP MEAT Sn 05" → "FLAP MEAT"）。第一个词不是大写单词时返回 ""，
+// 用来区分“价格读坏的商品行”和“地址/电话/条码行”。
+// 单个大写词时要求至少 6 个字母：条码行读残后常剩一个短大写词
+// （如 "999999 MIT ih | |"），那不是商品；真正的单字品名
+// （POTATOES、GINGER）都比较长。
+func probableItemName(rest string) string {
+	var words []string
+	for _, w := range strings.Fields(rest) {
+		if isUpperWord(w) {
+			words = append(words, w)
+			continue
+		}
+		break
+	}
+	if len(words) == 0 {
+		return ""
+	}
+	if len(words) == 1 && len(words[0]) < 6 {
+		return ""
+	}
+	return strings.Join(words, " ")
+}
+
+// isUpperWord 判断一个词是不是大写品名里的词：至少 2 个字符，
+// 只含大写字母、数字、/ . -，且至少含一个字母（如 "4LB"、"31/40" 算，
+// "Sn"、"7G,"、"05" 不算）。
+func isUpperWord(w string) bool {
+	if len(w) < 2 {
+		return false
+	}
+	hasLetter := false
+	for _, r := range w {
+		switch {
+		case r >= 'A' && r <= 'Z':
+			hasLetter = true
+		case r >= '0' && r <= '9' || r == '/' || r == '.' || r == '-':
+		default:
+			return false
+		}
+	}
+	return hasLetter
+}
+
+// stripLeadingOne 去掉金额的首位 1（如 11699 → 1699，112999 → 12999）；
+// 首位不是 1 时返回 -1。
+func stripLeadingOne(cents int) int {
+	mag := 1
+	for mag*10 <= cents {
+		mag *= 10
+	}
+	if cents/mag != 1 {
+		return -1
+	}
+	return cents - mag
+}
+
+// repairLeadingOne 修单价里多读的一位前导 1：折痕、竖纹常被 OCR 读成 1，
+// 如 16.99 读成 116.99，原价正好多 $100。
+// 只有原价偏高、且唯一一件单价 ≥ $100 的商品去掉首位 1 后恰好让对账通过时
+// 才修（多件候选时不猜，留给用户在确认页改），修完记一条警告。
+func repairLeadingOne(p *ParsedReceipt) {
+	if p.SubtotalCents <= 0 {
+		return
+	}
+	diff := p.GrossCents - p.DiscountCents - p.SubtotalCents
+	if diff <= reconcileTolerance {
+		return // 原价没偏高，不用修
+	}
+	var candidates []int
+	for i, it := range p.Items {
+		if it.UnitPriceCents < 10000 {
+			continue // 单价不到 $100，不可能多个 1
+		}
+		stripped := stripLeadingOne(it.UnitPriceCents)
+		if stripped < 0 {
+			continue
+		}
+		if d := (it.UnitPriceCents - stripped) * it.Qty; d-diff <= reconcileTolerance && diff-d <= reconcileTolerance {
+			candidates = append(candidates, i)
+		}
+	}
+	if len(candidates) != 1 {
+		return
+	}
+	i := candidates[0]
+	it := &p.Items[i]
+	old := it.UnitPriceCents
+	delta := (old - stripLeadingOne(old)) * it.Qty
+	it.UnitPriceCents = stripLeadingOne(old)
+	it.NetCents -= delta
+	p.GrossCents -= delta
+	p.Warnings = append(p.Warnings, "货号 "+it.ItemNo+" 的单价疑似多读了一位 1，已从 "+formatCents(old)+" 修正为 "+formatCents(it.UnitPriceCents)+"，请核对")
+}
+
+// parseScore 给解析结果打分（双 PSM 重试时选优用）：对账通过最重要，
+// 其次是日期/门店齐全、件数对得上；警告扣分。
+// 注意：小计没读出时对账检查会跳过，不能算“通过”，所以 +100 要求小计 > 0。
+func parseScore(p *ParsedReceipt) int {
+	score := 0
+	problems, warnings := Reconcile(p)
+	if p.SubtotalCents > 0 && len(problems) == 0 {
+		score += 100
+	}
+	if p.PurchasedAt != "" {
+		score += 20
+	}
+	if p.Store != "" {
+		score += 20
+	}
+	if p.ItemCount > 0 {
+		qty := 0
+		for _, it := range p.Items {
+			if it.IsFee || it.UnitPriceCents == 0 {
+				continue
+			}
+			qty += it.Qty
+		}
+		if d := qty - p.ItemCount; d < 0 {
+			score += d * 2
+		} else {
+			score -= d * 2
+		}
+	}
+	score -= len(warnings) * 5
+	score -= len(p.Warnings) * 5
+	return score
+}
+
+// parseGoodEnough 判断一次解析是否足够好、不用再换 PSM 重跑：
+// 小计读出、对账通过、日期与门店齐全。
+func parseGoodEnough(p *ParsedReceipt) bool {
+	if p == nil || p.SubtotalCents <= 0 || p.PurchasedAt == "" || p.Store == "" {
+		return false
+	}
+	problems, _ := Reconcile(p)
+	return len(problems) == 0
+}
+
 // cleanItemName 清理品名：去首尾杂字、压缩空格。
 func cleanItemName(s string) string {
 	s = strings.TrimSpace(s)
 	// 去掉首尾的 OCR 杂字（保留品名里合法的 * " . / - 等）
-	s = strings.Trim(s, ` |\/_—-·•~"'`)
+	s = strings.Trim(s, ` |\/_—-·•~"'()»«©`)
 	// 行首的 "E" 是免税标志不是品名（货号前的 E 已单独处理，这里防残留）
 	s = strings.TrimSpace(s)
 	s = regexp.MustCompile(`\s+`).ReplaceAllString(s, " ")

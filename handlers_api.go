@@ -276,29 +276,25 @@ func (a *App) uploadHandler(w http.ResponseWriter, r *http.Request, u *User) {
 	}
 	var text string
 	var parsed *ParsedReceipt
+	needsSnap := false
 	if isPDF {
-		// PDF：提文本（会员号在提文本时已去掉）+ 导出格式解析；
-		// 文本层是干净的，不用跑货号纠错。
-		text, err = ExtractPDFText(pendingPath)
+		// PDF：文本层导出格式 → 文本层照片格式 → 渲染成图再 OCR，
+		// 三路按打分选优（见 ParsePDFReceipt）。OCR 路径需要货号纠错。
+		parsed, text, needsSnap, err = ParsePDFReceipt(pendingPath)
 		if err != nil {
 			os.Remove(pendingPath)
 			writeErr(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		parsed, err = ParseExportReceiptText(text)
-		if err != nil {
-			os.Remove(pendingPath)
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
+		if needsSnap {
+			if known, err := a.store.KnownItemNumbers(); err == nil {
+				snapItemNumbers(parsed, known)
+			}
 		}
 	} else {
-		text, err = OCRReceipt(pendingPath)
-		if err != nil {
-			os.Remove(pendingPath)
-			writeErr(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		parsed, err = ParseReceiptText(text)
+		// 双 PSM 重试：PSM 6 效果不好时自动用 PSM 3 重跑，取打分高的那份
+		// （2026-11-21 实测：两个模式各有读不好的小票，不能只靠一个）。
+		parsed, text, err = OCRParseReceiptBest(pendingPath)
 		if err != nil {
 			os.Remove(pendingPath)
 			writeErr(w, http.StatusBadRequest, err.Error())

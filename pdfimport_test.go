@@ -993,3 +993,67 @@ func pdfEscape(s string) string {
 	s = strings.ReplaceAll(s, ")", "\\)")
 	return s
 }
+
+// 照片格式的文本层 PDF（iPhone 扫描件自带的 OCR 文本层，内容是纸质小票格式）：
+// 导出格式解析不出（或对账不过），应改走照片格式解析，并标记需要货号纠错。
+func TestParsePDFPhotoFormatTextLayer(t *testing.T) {
+	requirePdftotext(t)
+	lines := strings.Split(strings.Trim(cleanFixture, "\n"), "\n")
+	path := makeTextPDF(t, lines)
+	p, _, needsSnap, err := ParsePDFReceipt(path)
+	if err != nil {
+		t.Fatalf("照片格式文本层 PDF 解析失败：%v", err)
+	}
+	if !needsSnap {
+		t.Errorf("照片格式路径应标记需要货号纠错")
+	}
+	assertReceipt(t, p)
+	problems, _ := Reconcile(p)
+	if len(problems) != 0 {
+		t.Errorf("对账应通过，问题：%v", problems)
+	}
+}
+
+func requirePdftoppm(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath(pdftoppmBin); err != nil {
+		t.Skip("未安装 pdftoppm，跳过")
+	}
+}
+
+func requireTesseract(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath(tesseractBin); err != nil {
+		t.Skip("未安装 tesseract，跳过")
+	}
+}
+
+// 纯图片 PDF（扫描件，无文本层）：应渲染成图再 OCR，解析结果与照片导入一致。
+func TestParsePDFImageOnly(t *testing.T) {
+	requirePdftotext(t)
+	requirePdftoppm(t)
+	requireTesseract(t)
+	p, _, needsSnap, err := ParsePDFReceipt("testdata/image_receipt.pdf")
+	if err != nil {
+		t.Fatalf("图片 PDF 解析失败：%v", err)
+	}
+	if !needsSnap {
+		t.Errorf("图片 PDF 路径应标记需要货号纠错")
+	}
+	assertReceipt(t, p)
+	problems, _ := Reconcile(p)
+	if len(problems) != 0 {
+		t.Errorf("对账应通过，问题：%v", problems)
+	}
+}
+
+// 空白 PDF：文本层没有、渲染出来也没有文字，应报明确错误而不是假装成功。
+func TestParsePDFBlank(t *testing.T) {
+	requirePdftotext(t)
+	requirePdftoppm(t)
+	path := makeTextPDF(t, nil)
+	_, _, _, err := ParsePDFReceipt(path)
+	if err == nil {
+		t.Fatalf("空白 PDF 应报错")
+	}
+}

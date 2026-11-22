@@ -570,3 +570,257 @@ func TestSeedCSV(t *testing.T) {
 		}
 	}
 }
+
+// 门店兜底：# 被读成 t（"Fremont t123"）时仍能认出门店。
+func TestParseStoreFallbackT(t *testing.T) {
+	fixture := strings.Replace(cleanFixture, "Fremont #123", "Fremont t123", 1)
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Store != "FREMONT" || p.StoreNo != "123" {
+		t.Errorf("门店 = %q #%q，想要 FREMONT #123", p.Store, p.StoreNo)
+	}
+}
+
+// 门店兜底：# 整个丢掉（"Fremont 123"）时仍能认出门店。
+func TestParseStoreFallbackBare(t *testing.T) {
+	fixture := strings.Replace(cleanFixture, "Fremont #123", "Fremont 123", 1)
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Store != "FREMONT" || p.StoreNo != "123" {
+		t.Errorf("门店 = %q #%q，想要 FREMONT #123", p.Store, p.StoreNo)
+	}
+}
+
+// 立减行只认 SAVINGS：INSTANT 常被读残（如 "et SAVINGS"）。
+func TestParseSavingsRelaxed(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+E 4000001 RICE 5LB 12.99
+SUBTOTAL 12.99
+TAX 0.00
+**** TOTAL 12.99
+et SAVINGS $ 3.00
+TOTAL NUMBER OF ITEMS SOLD = 1
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.SavingsCents != 300 {
+		t.Errorf("立减 = %d，想要 300", p.SavingsCents)
+	}
+}
+
+// TOTAL 行读坏但 AMOUNT 与小计+税一致时，不报“用 AMOUNT 代替”警告
+// （两路数字互相验证通过，没什么可核对的）。
+func TestParseAmountAgreesNoWarning(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+E 4000001 RICE 5LB 12.99
+1000002 PAPER TOWELS 9.99 A
+SUBTOTAL 22.98
+TAX 0.87
+xxxx TOTAL f aS AAP
+AMOUNT: $23.85
+TOTAL NUMBER OF ITEMS SOLD = 2
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TotalCents != 2385 {
+		t.Errorf("总计 = %d，想要 2385", p.TotalCents)
+	}
+	for _, w := range p.Warnings {
+		if strings.Contains(w, "TOTAL 行没读出来") {
+			t.Errorf("AMOUNT 与小计+税一致时不应报 TOTAL 警告，实际 warnings：%v", p.Warnings)
+		}
+	}
+}
+
+// 日期被黑条盖掉的交易行（"16:20 123 3 249 498"）：门店号与已解析门店
+// 一致时仍能读出收银台号与交易号。
+func TestParseDatelessTxn(t *testing.T) {
+	p, err := ParseReceiptText(cleanFixture + "\n16:20 123 3 249 498\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TerminalNo != "3" || p.TransactionNo != "249" {
+		t.Errorf("收银台/交易号 = %q/%q，想要 3/249", p.TerminalNo, p.TransactionNo)
+	}
+}
+
+// 折扣行引用号的 "/" 被读成 "1"（/2014296 → 12014296）：
+// 明明挂对了商品，不应报“引用货号不一致”假警告。
+func TestParseDiscountRefOnePrefix(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+4000010 SOCKS 6PK 11.99 A
+0000399001 14000010 5.00-A
+SUBTOTAL 6.99
+TAX 0.61
+**** TOTAL 7.60
+TOTAL NUMBER OF ITEMS SOLD = 1
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Items) != 1 || p.Items[0].DiscountCents != 500 {
+		t.Fatalf("折扣应挂到 4000010 上（500 分），实际 items：%+v", p.Items)
+	}
+	for _, w := range p.Warnings {
+		if strings.Contains(w, "不一致") {
+			t.Errorf("不应报引用不一致警告，实际 warnings：%v", p.Warnings)
+		}
+	}
+}
+
+// 价格读坏的商品行不悄悄丢掉：有货号 + 大写品名时留行、单价记 0 并警告，
+// 确认页可手填；地址、OP# 这类行没有大写品名，仍跳过。
+func TestParsePriceUnknown(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+3150 Fostoria Way
+E 4000020 FLAP MEAT Sn 05
+4000021 RICE 5LB 12.99
+999999 MIT ih | |
+OP#: 498 Name: Anna
+SUBTOTAL 27.98
+TAX 0.00
+TOTAL NUMBER OF ITEMS SOLD = 2
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	meat, ok := byNo["4000020"]
+	if !ok {
+		t.Fatalf("价格读坏的 4000020 应留行，实际 items：%+v", p.Items)
+	}
+	if meat.UnitPriceCents != 0 || meat.Name != "FLAP MEAT" {
+		t.Errorf("4000020 单价/品名 = %d/%q，想要 0/FLAP MEAT", meat.UnitPriceCents, meat.Name)
+	}
+	if _, ok := byNo["3150"]; ok {
+		t.Errorf("地址行 3150 不应变成商品")
+	}
+	if _, ok := byNo["498"]; ok {
+		t.Errorf("OP# 行 498 不应变成商品")
+	}
+	if _, ok := byNo["999999"]; ok {
+		t.Errorf("条码残行 999999 MIT 不应变成商品")
+	}
+	found := false
+	for _, w := range p.Warnings {
+		if strings.Contains(w, "4000020") && strings.Contains(w, "价格没读出来") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("应有 4000020 价格没读出来的警告，实际 warnings：%v", p.Warnings)
+	}
+}
+
+// 前导 1 纠错：16.99 被读成 116.99，原价正好多 $100，
+// 去掉首位 1 后对账通过，应自动修正并警告。
+func TestRepairLeadingOne(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+E 4000030 SOUP POT 116.99
+4000031 RICE 5LB 10.99
+SUBTOTAL 27.98
+TAX 0.00
+**** TOTAL 27.98
+TOTAL NUMBER OF ITEMS SOLD = 2
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	if byNo["4000030"].UnitPriceCents != 1699 {
+		t.Fatalf("4000030 单价应修正为 1699，实际 %d", byNo["4000030"].UnitPriceCents)
+	}
+	if p.GrossCents != 2798 {
+		t.Errorf("原价 = %d，想要 2798", p.GrossCents)
+	}
+	problems, _ := Reconcile(p)
+	if len(problems) != 0 {
+		t.Errorf("修正后对账应通过，问题：%v", problems)
+	}
+	found := false
+	for _, w := range p.Warnings {
+		if strings.Contains(w, "多读了一位 1") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("应有前导 1 修正警告，实际 warnings：%v", p.Warnings)
+	}
+}
+
+// 前导 1 纠错：两件商品都可能是候选时不猜，留给用户在确认页改。
+func TestRepairLeadingOneAmbiguous(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+E 4000030 SOUP POT 116.99
+4000031 PAN SET 115.99
+SUBTOTAL 132.98
+TAX 0.00
+**** TOTAL 132.98
+TOTAL NUMBER OF ITEMS SOLD = 2
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byNo := map[string]ParsedItem{}
+	for _, it := range p.Items {
+		byNo[it.ItemNo] = it
+	}
+	if byNo["4000030"].UnitPriceCents != 11699 || byNo["4000031"].UnitPriceCents != 11599 {
+		t.Errorf("两件候选时不应修正，实际 %d/%d", byNo["4000030"].UnitPriceCents, byNo["4000031"].UnitPriceCents)
+	}
+}
+
+// 打分：对账通过 + 日期门店齐全的解析应高于残缺的解析。
+func TestParseScore(t *testing.T) {
+	good := &ParsedReceipt{
+		Store: "FREMONT", StoreNo: "123", PurchasedAt: "2026-09-12 14:25",
+		Items:         []ParsedItem{{ItemNo: "4000001", Qty: 1, UnitPriceCents: 1299, NetCents: 1299}},
+		GrossCents:    1299,
+		SubtotalCents: 1299, TotalCents: 1299, ItemCount: 1,
+	}
+	bad := &ParsedReceipt{
+		Items:         []ParsedItem{{ItemNo: "4000001", Qty: 1, UnitPriceCents: 1299, NetCents: 1299}},
+		GrossCents:    1299,
+		SubtotalCents: 1299, TotalCents: 1299, ItemCount: 1,
+		Warnings: []string{"没读出购买日期，请手动填写", "没读出门店，请手动填写"},
+	}
+	if parseScore(good) <= parseScore(bad) {
+		t.Errorf("好解析打分 (%d) 应高于残缺解析 (%d)", parseScore(good), parseScore(bad))
+	}
+	if !parseGoodEnough(good) {
+		t.Errorf("好解析应判定为足够好")
+	}
+	if parseGoodEnough(bad) {
+		t.Errorf("缺日期门店的解析不应判定为足够好")
+	}
+}

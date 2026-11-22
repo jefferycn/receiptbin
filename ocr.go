@@ -26,19 +26,37 @@ const ocrTimeout = 120 * time.Second
 // tesseractBin 是 tesseract 可执行文件名（PATH 里找；容器内由 apk 提供）。
 var tesseractBin = "tesseract"
 
+// ocrPSM 是 tesseract 的页面分段模式：6 = 均匀文本块（v1.0 实测最稳）。
+// OCRParseReceiptBest 在 PSM 6 效果不好时会自动用 PSM 3 重跑一遍
+// （2026-11-21 实测：带折痕的小票上 3 比 6 读得全，底部大号日期行、
+// 折痕处的价格 6 会丢，3 能读出；但另一张小票上 3 只读出 7 件、6 全对，
+// 所以两个模式都要试，按解析打分选优，不能只换默认模式）。
+var ocrPSM = "6"
+
 // OCRReceipt 对小票图片做 OCR，返回识别出的文本。
 // 流程：解码 → 灰度 + 放大 2 倍 → 写临时 PNG → tesseract --psm 6。
 // 图片解码失败时（如 iPhone 的 HEIC）退化为直接对原文件跑 tesseract。
 func OCRReceipt(imgPath string) (string, error) {
+	return OCRReceiptWithPSM(imgPath, ocrPSM)
+}
+
+// OCRReceiptWithPSM 与 OCRReceipt 相同，但指定页面分段模式
+// （图片 PDF 渲染后逐页 OCR 时，PSM 6 与 PSM 3 各跑一遍）。
+func OCRReceiptWithPSM(imgPath, psm string) (string, error) {
 	workPath := imgPath
 	if pre, err := preprocessReceiptImage(imgPath); err == nil {
 		workPath = pre
 		defer os.Remove(pre)
 	}
 	// else: 预处理失败（非常见格式），直接用原图试一次
+	return runTesseract(workPath, psm)
+}
+
+// runTesseract 在一张图上跑一次 tesseract，返回识别文本。
+func runTesseract(workPath, psm string) (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), ocrTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, tesseractBin, workPath, "stdout", "--psm", "6")
+	cmd := exec.CommandContext(ctx, tesseractBin, workPath, "stdout", "--psm", psm)
 	var out, errBuf bytes.Buffer
 	cmd.Stdout = &out
 	cmd.Stderr = &errBuf
@@ -53,6 +71,47 @@ func OCRReceipt(imgPath string) (string, error) {
 		return "", fmt.Errorf("OCR 几乎没读出文字，请确认照片拍的是小票、字迹清晰")
 	}
 	return text, nil
+}
+
+// OCRParseReceiptBest 对小票图片做 OCR + 解析，自动选最优结果：
+// 先用 PSM 6 跑一遍，解析结果不理想（对账不过、或缺日期/门店）时
+// 再用 PSM 3 在同一张预处理图上重跑一遍，按解析打分取高的那份。
+// PSM 6 效果好时只跑一次，不增加耗时；效果不好时多花一次 OCR 的时间
+// （约几秒），换一张读得全的小票。返回最佳解析结果与对应的 OCR 文本。
+func OCRParseReceiptBest(imgPath string) (*ParsedReceipt, string, error) {
+	workPath := imgPath
+	if pre, err := preprocessReceiptImage(imgPath); err == nil {
+		workPath = pre
+		defer os.Remove(pre)
+	}
+	text6, err := runTesseract(workPath, "6")
+	if err != nil {
+		return nil, "", err
+	}
+	best, err6 := ParseReceiptText(text6)
+	bestText := text6
+	if err6 == nil && parseGoodEnough(best) {
+		return best, bestText, nil
+	}
+	text3, err := runTesseract(workPath, "3")
+	if err != nil {
+		// 第二遍失败：第一遍能用就用第一遍
+		if err6 == nil {
+			return best, bestText, nil
+		}
+		return nil, "", err6
+	}
+	alt, err3 := ParseReceiptText(text3)
+	if err3 != nil {
+		if err6 == nil {
+			return best, bestText, nil
+		}
+		return nil, "", err6
+	}
+	if err6 == nil && parseScore(best) >= parseScore(alt) {
+		return best, bestText, nil
+	}
+	return alt, text3, nil
 }
 
 // preprocessReceiptImage：解码图片，先转灰度，宽 < 2000 时用 Lanczos-3 放大 2 倍，
@@ -87,6 +146,8 @@ func preprocessReceiptImage(imgPath string) (string, error) {
 	if w < 2000 {
 		dst = lanczosScaleGray(gray, 2)
 	}
+	// 注意：不要加白边。2026-11-21 实测 30px 白边让 11/14 小票在 PSM 6 下
+	// 从全对变成对账差 $5（丢一行折扣、多算一件），得不偿失。
 	tmp, err := os.CreateTemp("", "receiptbin-ocr-*.png")
 	if err != nil {
 		return "", err
