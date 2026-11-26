@@ -6,6 +6,7 @@ package main
 
 import (
 	"encoding/json"
+	"image"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -1055,5 +1056,43 @@ func TestParsePDFBlank(t *testing.T) {
 	_, _, _, err := ParsePDFReceipt(path)
 	if err == nil {
 		t.Fatalf("空白 PDF 应报错")
+	}
+}
+
+// 高页图片 PDF（iPhone 存的 PDF 页面能有 45 英寸高）：渲染宽度必须封顶，
+// 否则 300dpi 渲染出巨图、渲染本身就超时（反代先 504）。断言渲染出的
+// PNG 宽度不超过 2000，且整条管线能解析成功。
+func TestParsePDFTallImagePage(t *testing.T) {
+	requirePdftotext(t)
+	requirePdftoppm(t)
+	requireTesseract(t)
+	dir, pages, err := renderPDFPages("testdata/tall_image_receipt.pdf", pdfRenderMaxPages)
+	if err != nil {
+		t.Fatalf("渲染高页 PDF 失败：%v", err)
+	}
+	defer os.RemoveAll(dir)
+	f, err := os.Open(pages[0])
+	if err != nil {
+		t.Fatalf("打开渲染图失败：%v", err)
+	}
+	cfg, _, err := image.DecodeConfig(f)
+	f.Close()
+	if err != nil {
+		t.Fatalf("读渲染图尺寸失败：%v", err)
+	}
+	if cfg.Width > 2000 {
+		t.Errorf("渲染图宽度 %d 超过封顶 2000", cfg.Width)
+	}
+	p, _, needsSnap, err := ParsePDFReceipt("testdata/tall_image_receipt.pdf")
+	if err != nil {
+		t.Fatalf("高页图片 PDF 解析失败：%v", err)
+	}
+	if !needsSnap {
+		t.Errorf("图片 PDF 路径应标记需要货号纠错")
+	}
+	assertReceipt(t, p)
+	problems, _ := Reconcile(p)
+	if len(problems) != 0 {
+		t.Errorf("对账应通过，问题：%v", problems)
 	}
 }

@@ -145,6 +145,11 @@ func preprocessReceiptImage(imgPath string) (string, error) {
 	dst := gray
 	if w < 2000 {
 		dst = lanczosScaleGray(gray, 2)
+	} else if w > 2000 {
+		// 巨图（高像素照片、图片 PDF 渲染图）先缩到 2000 宽：
+		// tesseract 在巨图上要跑几十秒，请求会先被反代 504。
+		// 2000px 宽对小票文字足够。
+		dst = downscaleGrayToWidth(gray, 2000)
 	}
 	// 注意：不要加白边。2026-11-21 实测 30px 白边让 11/14 小票在 PSM 6 下
 	// 从全对变成对账差 $5（丢一行折扣、多算一件），得不偿失。
@@ -216,6 +221,44 @@ func axisTaps(inLen, outLen int) [][]resampleTap {
 }
 
 // lanczosScaleGray 用 Lanczos-3 把灰度图放大 scale 倍（可分离：先横后竖）。
+// downscaleGrayToWidth 把灰度图按面积平均缩到 targetW 宽（高度按比例）。
+// 只用于巨图降采样：面积平均对文字边缘友好，速度也够。
+func downscaleGrayToWidth(src *image.Gray, targetW int) *image.Gray {
+	b := src.Bounds()
+	w, h := b.Dx(), b.Dy()
+	if w <= targetW {
+		return src
+	}
+	oh := h * targetW / w
+	if oh < 1 {
+		oh = 1
+	}
+	dst := image.NewGray(image.Rect(0, 0, targetW, oh))
+	for oy := 0; oy < oh; oy++ {
+		y0 := oy * h / oh
+		y1 := (oy + 1) * h / oh
+		if y1 <= y0 {
+			y1 = y0 + 1
+		}
+		for ox := 0; ox < targetW; ox++ {
+			x0 := ox * w / targetW
+			x1 := (ox + 1) * w / targetW
+			if x1 <= x0 {
+				x1 = x0 + 1
+			}
+			sum, n := 0, 0
+			for y := y0; y < y1; y++ {
+				for x := x0; x < x1; x++ {
+					sum += int(src.GrayAt(b.Min.X+x, b.Min.Y+y).Y)
+					n++
+				}
+			}
+			dst.SetGray(ox, oy, color.Gray{Y: uint8(sum / n)})
+		}
+	}
+	return dst
+}
+
 func lanczosScaleGray(src *image.Gray, scale int) *image.Gray {
 	b := src.Bounds()
 	w, h := b.Dx(), b.Dy()

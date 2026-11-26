@@ -147,7 +147,7 @@ func ParsePDFReceipt(pdfPath string) (*ParsedReceipt, string, bool, error) {
 	return best, bestText, bestSnap, nil
 }
 
-// renderPDFPages 用 pdftoppm 把 PDF 前 maxPages 页渲染成 PNG（300dpi），
+// renderPDFPages 用 pdftoppm 把 PDF 前 maxPages 页渲染成 JPEG（宽度封顶 2000px），
 // 返回临时目录与按页排序的文件列表。调用方负责删除目录。
 func renderPDFPages(pdfPath string, maxPages int) (string, []string, error) {
 	if _, err := exec.LookPath(pdftoppmBin); err != nil {
@@ -160,7 +160,12 @@ func renderPDFPages(pdfPath string, maxPages int) (string, []string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), pdfTimeout)
 	defer cancel()
 	prefix := filepath.Join(dir, "page")
-	cmd := exec.CommandContext(ctx, pdftoppmBin, "-r", "300", "-png",
+	// 宽度封顶 2000px（高度按比例）、输出 JPEG：iPhone 存的图片 PDF
+	// 页面能有 45 英寸高，按 300dpi 渲染 PNG 是 4300×13500 的巨图，
+	// 光渲染就超 60 秒（反代先 504）；封顶 + JPEG 后约 2 秒。
+	// 2000px 宽对小票 OCR 足够。
+	cmd := exec.CommandContext(ctx, pdftoppmBin, "-jpeg",
+		"-scale-to-x", "2000", "-scale-to-y", "-1",
 		"-f", "1", "-l", fmt.Sprintf("%d", maxPages), pdfPath, prefix)
 	var errBuf bytes.Buffer
 	cmd.Stderr = &errBuf
@@ -171,7 +176,7 @@ func renderPDFPages(pdfPath string, maxPages int) (string, []string, error) {
 		}
 		return "", nil, fmt.Errorf("渲染 PDF 失败：%s", strings.TrimSpace(errBuf.String()))
 	}
-	pages, err := filepath.Glob(prefix + "-*.png")
+	pages, err := filepath.Glob(prefix + "-*.jpg")
 	if err != nil || len(pages) == 0 {
 		os.RemoveAll(dir)
 		return "", nil, fmt.Errorf("这个 PDF 里没有可读的页面，请上传小票照片")
