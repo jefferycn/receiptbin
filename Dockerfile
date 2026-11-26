@@ -3,9 +3,11 @@
 FROM golang:1.27.4-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
-RUN go mod download
+# BuildKit 缓存挂载（模块缓存 + 编译缓存，留在构建器里不进镜像）：
+# 改代码后重建只编改动部分，不再每次全量编译 modernc.org/sqlite。
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /receiptbin .
+RUN --mount=type=cache,target=/go/pkg/mod --mount=type=cache,target=/root/.cache/go-build CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" -o /receiptbin .
 
 # 运行阶段：alpine（约 7MB）+ tesseract OCR（英文数据）+ poppler-utils（pdftotext/pdftoppm）。
 # 不用 scratch：群晖老版本 Docker 在 FROM scratch 之后会报 unexpected EOF

@@ -346,6 +346,9 @@ func ParseExportReceiptText(text string) (*ParsedReceipt, error) {
 		p.Warnings = append(p.Warnings, "含整单立减 "+formatCents(receiptDiscount)+"（已计入对账，不挂给单件商品）")
 	}
 
+	// TOTAL 行读错纠正（见 fixMisreadTotal），再走总价兜底。
+	fixMisreadTotal(p, totalFromAmount)
+
 	// 总价兜底：TOTAL 行没读出时先用 AMOUNT，再用小计+税推导。
 	if p.TotalCents == 0 {
 		if totalFromAmount > 0 {

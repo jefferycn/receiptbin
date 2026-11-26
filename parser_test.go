@@ -824,3 +824,80 @@ func TestParseScore(t *testing.T) {
 		t.Errorf("缺日期门店的解析不应判定为足够好")
 	}
 }
+
+// TOTAL 行把 TOTAL TAX 读成 TOTAL（税额大小）时：AMOUNT 与小计+税一致，
+// 应改用 AMOUNT 并警告，而不是把税额当总价。
+func TestParseTotalTaxConfusionWithAmount(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+E 4000001 RICE 5LB 70.00
+1000002 PAPER TOWELS 10.00 A
+SUBTOTAL 80.00
+TAX 2.00
+TOTAL 2.09
+AMOUNT: $82.00
+TOTAL TAX 2.00
+TOTAL NUMBER OF ITEMS SOLD = 2
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TotalCents != 8200 {
+		t.Errorf("总计 = %d，想要 8200（用 AMOUNT 纠正）", p.TotalCents)
+	}
+	found := false
+	for _, w := range p.Warnings {
+		if strings.Contains(w, "已用 AMOUNT 核对") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("应有 TOTAL 纠正警告，实际 warnings：%v", p.Warnings)
+	}
+}
+
+// TOTAL 正好等于税额且没有 AMOUNT：用小计+税推导并警告。
+func TestParseTotalEqualsTaxNoAmount(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+E 4000001 RICE 5LB 70.00
+1000002 PAPER TOWELS 10.00 A
+SUBTOTAL 80.00
+TAX 2.00
+TOTAL 2.00
+TOTAL TAX 2.00
+TOTAL NUMBER OF ITEMS SOLD = 2
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TotalCents != 8200 || !p.TotalDerived {
+		t.Errorf("总计 = %d derived=%v，想要 8200 且 derived=true", p.TotalCents, p.TotalDerived)
+	}
+}
+
+// TOTAL 与小计+税不一致、AMOUNT 也不一致时不乱改，交给对账报错。
+func TestParseTotalMismatchLeftAlone(t *testing.T) {
+	fixture := `COSTCO WHOLESALE
+Fremont #123
+E 4000001 RICE 5LB 70.00
+1000002 PAPER TOWELS 10.00 A
+SUBTOTAL 80.00
+TAX 2.00
+TOTAL 85.00
+AMOUNT: $90.00
+TOTAL NUMBER OF ITEMS SOLD = 2
+BP 09/12/2026 14:25
+`
+	p, err := ParseReceiptText(fixture)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.TotalCents != 8500 {
+		t.Errorf("总计 = %d，想要 8500（证据不足时不改）", p.TotalCents)
+	}
+}

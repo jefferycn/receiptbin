@@ -444,6 +444,9 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 	// 原价正好多出 $100 时尝试修掉（见 repairLeadingOne）。
 	repairLeadingOne(p)
 
+	// TOTAL 行读错纠正（见 fixMisreadTotal），再走总价兜底。
+	fixMisreadTotal(p, totalFromAmount)
+
 	// 总价兜底：TOTAL 行没读出时先用 AMOUNT，再用小计+税推导。
 	if p.TotalCents == 0 {
 		if totalFromAmount > 0 {
@@ -468,6 +471,35 @@ func ParseReceiptText(text string) (*ParsedReceipt, error) {
 		p.Warnings = append(p.Warnings, "没读出门店，请手动填写")
 	}
 	return p, nil
+}
+
+// fixMisreadTotal 纠正 TOTAL 行读错：TOTAL 行是反白印刷，OCR 常读坏，
+// 典型坏法是把 "TOTAL TAX 1.46" 读成 "TOTAL 1.49"（TAX 丢了、6 读成 9），
+// 总价就成了税额大小。纠正规则（只在证据明确时动手，其余交给对账报错）：
+//   - AMOUNT 与小计+税一致、但 TOTAL 不一致 → TOTAL 读错，用 AMOUNT；
+//   - TOTAL 正好等于税额（TOTAL TAX 混淆的签名）→ 用 AMOUNT，没有则用小计+税推导。
+func fixMisreadTotal(p *ParsedReceipt, totalFromAmount int) {
+	if p.TotalCents <= 0 || p.SubtotalCents <= 0 {
+		return
+	}
+	expected := p.SubtotalCents + p.TaxCents
+	if p.TotalCents == expected {
+		return
+	}
+	if totalFromAmount > 0 && totalFromAmount == expected {
+		p.TotalCents = totalFromAmount
+		p.Warnings = append(p.Warnings, "TOTAL 行读出的金额与小计+税不一致，已用 AMOUNT 核对，请核对")
+		return
+	}
+	if p.TotalCents == p.TaxCents {
+		if totalFromAmount > 0 {
+			p.TotalCents = totalFromAmount
+		} else {
+			p.TotalCents = expected
+			p.TotalDerived = true
+		}
+		p.Warnings = append(p.Warnings, "TOTAL 行疑似读成税额，已用小计+税核对，请核对")
+	}
 }
 
 // discountItemRef 从折扣行里提取引用的货号：
