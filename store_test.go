@@ -298,3 +298,143 @@ func TestValidCategoryGiftCard(t *testing.T) {
 		t.Errorf("最后一个分类应为 其他，实际 %q", Categories[len(Categories)-1])
 	}
 }
+
+// 退货清单（v2.13）：加入、改数量、标记已处理、全部已处理、移除。
+func TestReturnsLifecycle(t *testing.T) {
+	app := testApp(t)
+	rec := &Receipt{ID: "rt1", Store: "FREMONT", StoreNo: "999", PurchasedAt: "2026-09-12 14:25",
+		SubtotalCents: 4500, TaxCents: 0, TotalCents: 4500, ItemCount: 5}
+	items := []ReceiptItem{{ItemNo: "3000010", Name: "TEST BALL", Qty: 5,
+		UnitPriceCents: 1000, DiscountCents: 100, NetCents: 4500, Category: "运动"}}
+	if err := app.store.CreateReceipt(rec, items); err != nil {
+		t.Fatalf("建小票失败：%v", err)
+	}
+	got, err := app.store.GetReceiptItems("rt1")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("取商品行失败：%v", err)
+	}
+	itemID := got[0].ID
+
+	// 加入：qty 0 按购买数量，退款额 = 5 × (1000-100)
+	rt, err := app.store.AddReturn(itemID, 0)
+	if err != nil {
+		t.Fatalf("AddReturn 失败：%v", err)
+	}
+	if rt.Qty != 5 || rt.RefundCents != 4500 || rt.Status != "pending" {
+		t.Errorf("退货记录 = %+v，想要 qty 5 / refund 4500 / pending", rt)
+	}
+	// 重复加入只改数量，不建第二条
+	rt2, err := app.store.AddReturn(itemID, 2)
+	if err != nil {
+		t.Fatalf("重复 AddReturn 失败：%v", err)
+	}
+	if rt2.ID != rt.ID || rt2.Qty != 2 {
+		t.Errorf("重复加入 = %+v，想要同 id 且 qty 2", rt2)
+	}
+	// 数量夹在 1..购买数量
+	if rt3, err := app.store.SetReturnQty(rt.ID, 99); err != nil || rt3.Qty != 5 {
+		t.Errorf("SetReturnQty 99 = %+v, %v，想要 qty 5", rt3, err)
+	}
+	if rt3, err := app.store.SetReturnQty(rt.ID, 0); err != nil || rt3.Qty != 1 {
+		t.Errorf("SetReturnQty 0 = %+v, %v，想要 qty 1", rt3, err)
+	}
+	// 小票详情用的待退映射
+	m, err := app.store.PendingReturnMap("rt1")
+	if err != nil || m[itemID].ID != rt.ID {
+		t.Errorf("PendingReturnMap = %v, %v", m, err)
+	}
+	// 标记已处理 → 待退为空、已处理有一条；恢复后回来
+	if err := app.store.SetReturnStatus(rt.ID, "done"); err != nil {
+		t.Fatalf("SetReturnStatus 失败：%v", err)
+	}
+	if list, _ := app.store.ListReturns("pending"); len(list) != 0 {
+		t.Errorf("已处理后待退应为空，实际 %d 条", len(list))
+	}
+	if list, _ := app.store.ListReturns("done"); len(list) != 1 || list[0].DoneAt == "" {
+		t.Errorf("已处理列表 = %+v", list)
+	}
+	if err := app.store.SetReturnStatus(rt.ID, "pending"); err != nil {
+		t.Fatalf("恢复失败：%v", err)
+	}
+	// 全部已处理
+	n, err := app.store.MarkAllReturnsDone()
+	if err != nil || n != 1 {
+		t.Errorf("MarkAllReturnsDone = %d, %v，想要 1", n, err)
+	}
+	// 移除
+	if err := app.store.RemoveReturn(rt.ID); err != nil {
+		t.Fatalf("RemoveReturn 失败：%v", err)
+	}
+	if list, _ := app.store.ListReturns("done"); len(list) != 0 {
+		t.Errorf("移除后应为空，实际 %d 条", len(list))
+	}
+	// 不存在的商品行
+	if _, err := app.store.AddReturn(999999, 1); err == nil {
+		t.Errorf("不存在的商品行应报错")
+	}
+}
+
+// 覆盖保存小票时，待退货记录按货号带到新小票；货号没了就丢弃。
+func TestReturnsCarryOverOnReplace(t *testing.T) {
+	app := testApp(t)
+	old := &Receipt{ID: "rc1", Store: "FREMONT", StoreNo: "999", PurchasedAt: "2026-09-12 14:25",
+		SubtotalCents: 3000, TotalCents: 3000, ItemCount: 3}
+	oldItems := []ReceiptItem{{ItemNo: "3000011", Name: "TEST MUG", Qty: 3,
+		UnitPriceCents: 1000, NetCents: 3000, Category: "厨房用品"}}
+	if err := app.store.CreateReceipt(old, oldItems); err != nil {
+		t.Fatalf("建旧小票失败：%v", err)
+	}
+	got, _ := app.store.GetReceiptItems("rc1")
+	if _, err := app.store.AddReturn(got[0].ID, 2); err != nil {
+		t.Fatalf("AddReturn 失败：%v", err)
+	}
+	newRec := &Receipt{ID: "rc2", Store: "FREMONT", StoreNo: "999", PurchasedAt: "2026-09-12 14:25",
+		SubtotalCents: 3000, TotalCents: 3000, ItemCount: 3}
+	newItems := []ReceiptItem{{ItemNo: "3000011", Name: "TEST MUG", Qty: 3,
+		UnitPriceCents: 1000, NetCents: 3000, Category: "厨房用品"}}
+	if err := app.store.ReplaceReceipt("rc1", newRec, newItems); err != nil {
+		t.Fatalf("覆盖失败：%v", err)
+	}
+	m, err := app.store.PendingReturnMap("rc2")
+	if err != nil || len(m) != 1 {
+		t.Fatalf("覆盖后待退记录应带过来，m=%v err=%v", m, err)
+	}
+	for _, rt := range m {
+		if rt.Qty != 2 || rt.ItemNo != "3000011" {
+			t.Errorf("带过来的记录 = %+v，想要货号 3000011 / qty 2", rt)
+		}
+	}
+	// 再覆盖成没有这个货号的小票：记录丢弃
+	newRec2 := &Receipt{ID: "rc3", Store: "FREMONT", StoreNo: "999", PurchasedAt: "2026-09-12 14:25",
+		SubtotalCents: 1000, TotalCents: 1000, ItemCount: 1}
+	newItems2 := []ReceiptItem{{ItemNo: "3000012", Name: "OTHER", Qty: 1,
+		UnitPriceCents: 1000, NetCents: 1000, Category: "其他"}}
+	if err := app.store.ReplaceReceipt("rc2", newRec2, newItems2); err != nil {
+		t.Fatalf("二次覆盖失败：%v", err)
+	}
+	if list, _ := app.store.ListReturns("pending"); len(list) != 0 {
+		t.Errorf("货号没了待退记录应丢弃，实际 %d 条", len(list))
+	}
+}
+
+// 删除小票时退货记录一起删。
+func TestReturnsDeletedWithReceipt(t *testing.T) {
+	app := testApp(t)
+	rec := &Receipt{ID: "rd1", Store: "FREMONT", StoreNo: "999", PurchasedAt: "2026-09-12 14:25",
+		SubtotalCents: 1000, TotalCents: 1000, ItemCount: 1}
+	items := []ReceiptItem{{ItemNo: "3000013", Name: "TEST PEN", Qty: 1,
+		UnitPriceCents: 1000, NetCents: 1000, Category: "日用品"}}
+	if err := app.store.CreateReceipt(rec, items); err != nil {
+		t.Fatalf("建小票失败：%v", err)
+	}
+	got, _ := app.store.GetReceiptItems("rd1")
+	if _, err := app.store.AddReturn(got[0].ID, 1); err != nil {
+		t.Fatalf("AddReturn 失败：%v", err)
+	}
+	if err := app.store.DeleteReceipt("rd1"); err != nil {
+		t.Fatalf("删小票失败：%v", err)
+	}
+	if list, _ := app.store.ListReturns("pending"); len(list) != 0 {
+		t.Errorf("删小票后退货记录应一起删，实际 %d 条", len(list))
+	}
+}

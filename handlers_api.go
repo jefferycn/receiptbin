@@ -564,6 +564,18 @@ func (a *App) getReceiptHandler(w http.ResponseWriter, r *http.Request, u *User)
 		writeErr(w, http.StatusInternalServerError, "数据库错误")
 		return
 	}
+	// 带上待退货状态，小票详情页据此显示「加入退货 / 待退货」按钮。
+	pending, err := a.store.PendingReturnMap(id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "数据库错误")
+		return
+	}
+	for i := range items {
+		if rt, ok := pending[items[i].ID]; ok {
+			items[i].ReturnID = rt.ID
+			items[i].ReturnQty = rt.Qty
+		}
+	}
 	writeJSON(w, http.StatusOK, map[string]any{"receipt": rec, "items": items})
 }
 

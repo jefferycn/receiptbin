@@ -180,6 +180,7 @@ async function initTopbar() {
       : path.startsWith('/search') || path.startsWith('/item/') ? 'search'
       : path === '/watchlist' ? 'watchlist'
       : path === '/alerts' ? 'alerts'
+      : path === '/returns' ? 'returns'
       : path === '/settings' ? 'settings' : null;
     if (current) {
       const item = drawer.querySelector('[data-nav="' + current + '"]');
@@ -193,6 +194,10 @@ async function initTopbar() {
     api('/api/v1/watchlist').then(d => {
       const el = document.getElementById('watchCount');
       if (el && Array.isArray(d.watchlist)) el.textContent = d.watchlist.length + ' 件';
+    }).catch(() => {});
+    api('/api/v1/returns?status=pending').then(d => {
+      const el = document.getElementById('returnCount');
+      if (el && d.pending_count > 0) el.textContent = d.pending_count + ' 件';
     }).catch(() => {});
   }
   const btn = document.getElementById('logoutBtn');

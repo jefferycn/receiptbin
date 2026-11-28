@@ -10,13 +10,33 @@ let showAll = false;
 
 function itemRow(it) {
   const en = nameEnSub(it);
+  const retBtn = '<button class="ret-btn' + (it.return_id ? ' on' : '') + '" data-ret="' + it.id + '">' +
+    (it.return_id ? '待退货 ×' + it.return_qty : '加入退货') + '</button>';
   return '<tr onclick="location.href=\'/item/' + encodeURIComponent(it.item_no) + '\'" style="cursor:pointer">' +
   '<td>' + esc(displayName(it)) + '<br><span class="muted">' + esc(it.item_no) + ' · ' + esc(it.category) +
-  (en ? '<br>' + esc(en) : '') + '</span></td>' +
+  (en ? '<br>' + esc(en) : '') + '</span><br>' + retBtn + '</td>' +
   '<td class="num">' + it.qty + '</td>' +
   '<td class="num money">' + fmtMoney(it.unit_price_cents) +
   (it.discount_cents > 0 ? '<br><span class="good">−' + fmtMoney(it.discount_cents) + '</span>' : '') + '</td>' +
   '<td class="num money">' + fmtMoney(it.net_cents) + '</td></tr>';
+}
+
+// 退货开关：点一下加入退货清单，再点移出（数量在退货清单页调）。
+async function toggleReturn(it) {
+  try {
+    if (it.return_id) {
+      await api('/api/v1/returns/' + it.return_id, { method: 'DELETE' });
+      it.return_id = 0; it.return_qty = 0;
+      toast('已移出退货清单');
+    } else {
+      const d = await api('/api/v1/returns', {
+        method: 'POST', body: JSON.stringify({ receipt_item_id: it.id }),
+      });
+      it.return_id = d.return.id; it.return_qty = d.return.qty;
+      toast('已加入退货清单');
+    }
+    renderItems();
+  } catch (e) { toast(e.message); }
 }
 
 // 渲染筛选条 + 商品表（切换显示全部/只看筛选时只重绘这一块）
@@ -36,6 +56,11 @@ function renderItems() {
     (shown.length ? shown.map(itemRow).join('') :
       '<tr><td colspan="4" class="muted" style="text-align:center;padding:16px">这张小票里没有「' + esc(filterCategory) + '」的商品</td></tr>') +
     '</table>';
+  document.querySelectorAll('[data-ret]').forEach(b => b.addEventListener('click', e => {
+    e.stopPropagation();
+    const it = items.find(x => x.id === Number(b.dataset.ret));
+    if (it) toggleReturn(it);
+  }));
 }
 
 async function load() {

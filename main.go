@@ -118,6 +118,9 @@ func (a *App) routes() *http.ServeMux {
 	mux.HandleFunc("GET /watchlist", a.requirePage(func(w http.ResponseWriter, r *http.Request, u *User) {
 		servePage("watchlist.html")(w, r)
 	}))
+	mux.HandleFunc("GET /returns", a.requirePage(func(w http.ResponseWriter, r *http.Request, u *User) {
+		servePage("returns.html")(w, r)
+	}))
 	mux.HandleFunc("GET /settings", a.requirePage(func(w http.ResponseWriter, r *http.Request, u *User) {
 		servePage("settings.html")(w, r)
 	}))
@@ -147,6 +150,13 @@ func (a *App) routes() *http.ServeMux {
 
 	mux.HandleFunc("GET /api/v1/alerts", a.requireAPI(a.listAlertsHandler))
 	mux.HandleFunc("POST /api/v1/alerts/{id}/status", a.requireAPI(a.setAlertStatusHandler))
+
+	mux.HandleFunc("GET /api/v1/returns", a.requireAPI(a.listReturnsHandler))
+	mux.HandleFunc("POST /api/v1/returns", a.requireAPI(a.addReturnHandler))
+	mux.HandleFunc("POST /api/v1/returns/done-all", a.requireAPI(a.doneAllReturnsHandler))
+	mux.HandleFunc("DELETE /api/v1/returns/{id}", a.requireAPI(a.removeReturnHandler))
+	mux.HandleFunc("POST /api/v1/returns/{id}/qty", a.requireAPI(a.setReturnQtyHandler))
+	mux.HandleFunc("POST /api/v1/returns/{id}/status", a.requireAPI(a.setReturnStatusHandler))
 
 	mux.HandleFunc("GET /api/v1/watchlist", a.requireAPI(a.listWatchlistHandler))
 	mux.HandleFunc("POST /api/v1/watchlist", a.requireAPI(a.addWatchHandler))

@@ -130,6 +130,20 @@ CREATE TABLE IF NOT EXISTS price_observations (
 	created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_obs_item_date ON price_observations(item_no, observed_on DESC);
+
+-- 退货清单（v2.13）：从小票详情把商品行加入，退掉后标记已处理。
+-- 一条记录挂在一个 receipt_items 行上（同小票同货号已聚合，一行一件商品）；
+-- qty 是待退数量（可少于购买数量，如买 5 退 2）。
+CREATE TABLE IF NOT EXISTS returns (
+	id INTEGER PRIMARY KEY AUTOINCREMENT,
+	receipt_item_id INTEGER NOT NULL REFERENCES receipt_items(id) ON DELETE CASCADE,
+	qty INTEGER NOT NULL DEFAULT 1,
+	status TEXT NOT NULL DEFAULT 'pending',
+	created_at TEXT NOT NULL,
+	done_at TEXT NOT NULL DEFAULT ''
+);
+CREATE INDEX IF NOT EXISTS idx_returns_status ON returns(status, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_returns_pending_item ON returns(receipt_item_id) WHERE status = 'pending';
 `
 
 // Categories 是分类集合（DESIGN.md 定稿）。"其他" 为默认分类。

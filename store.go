@@ -158,6 +158,8 @@ type ReceiptItem struct {
 	PurchasedAt    string `json:"purchased_at,omitempty"` // 购买历史里带上
 	Store          string `json:"store,omitempty"`
 	StoreNo        string `json:"store_no,omitempty"`
+	ReturnID       int64  `json:"return_id,omitempty"`  // 待退货记录 id（小票详情用）
+	ReturnQty      int    `json:"return_qty,omitempty"` // 待退数量
 }
 
 // receipts 表的列，与 scanReceipt 的扫描顺序一致。
@@ -256,6 +258,10 @@ func insertReceiptTx(tx *sql.Tx, r *Receipt, items []ReceiptItem) error {
 // deleteReceiptTx 在事务里删小票：商品行由外键级联删除；相关提醒与价格观察
 // 一起删掉。照片文件由调用方删（数据库不知道文件是否还在）。
 func deleteReceiptTx(tx *sql.Tx, id string) error {
+	if _, err := tx.Exec(`DELETE FROM returns WHERE receipt_item_id IN
+		(SELECT id FROM receipt_items WHERE receipt_id = ?)`, id); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM alerts WHERE old_receipt_id = ? OR new_receipt_id = ?`, id, id); err != nil {
 		return err
 	}
@@ -298,11 +304,56 @@ func (s *Store) ReplaceReceipt(oldID string, r *Receipt, items []ReceiptItem) er
 		return err
 	}
 	defer tx.Rollback()
+	// 待退货记录按货号带到新小票：覆盖保存后商品行 id 变了，
+	// 不带过去退货清单会悄悄少东西。
+	type pendingCarry struct {
+		itemNo string
+		qty    int
+	}
+	var carries []pendingCarry
+	rows, err := tx.Query(`SELECT ri.item_no, rt.qty FROM returns rt
+		JOIN receipt_items ri ON ri.id = rt.receipt_item_id
+		WHERE ri.receipt_id = ? AND rt.status = 'pending'`, oldID)
+	if err != nil {
+		return err
+	}
+	for rows.Next() {
+		var c pendingCarry
+		if err := rows.Scan(&c.itemNo, &c.qty); err != nil {
+			rows.Close()
+			return err
+		}
+		carries = append(carries, c)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close()
 	if err := deleteReceiptTx(tx, oldID); err != nil {
 		return err
 	}
 	if err := insertReceiptTx(tx, r, items); err != nil {
 		return err
+	}
+	for _, c := range carries {
+		var newID int64
+		var bought int
+		if err := tx.QueryRow(`SELECT id, qty FROM receipt_items
+			WHERE receipt_id = ? AND item_no = ?`, r.ID, c.itemNo).Scan(&newID, &bought); err != nil {
+			continue // 新小票里没有这个货号了，丢弃这条
+		}
+		q := c.qty
+		if q > bought {
+			q = bought
+		}
+		if q < 1 {
+			q = 1
+		}
+		if _, err := tx.Exec(`INSERT INTO returns (receipt_item_id, qty, status, created_at)
+			VALUES (?, ?, 'pending', ?)`, newID, q, nowStr()); err != nil {
+			return err
+		}
 	}
 	return tx.Commit()
 }
@@ -862,6 +913,195 @@ func (s *Store) SetAlertStatus(id int64, status string) error {
 		return errNotFound
 	}
 	return nil
+}
+
+// ---------- 退货清单 ----------
+
+// ReturnItem 是退货清单的一条记录（带商品行与小票的展示字段）。
+// RefundCents 是预计可退金额（待退数量 × 实付单价，不含税）。
+type ReturnItem struct {
+	ID             int64  `json:"id"`
+	ReceiptItemID  int64  `json:"receipt_item_id"`
+	ReceiptID      string `json:"receipt_id"`
+	ItemNo         string `json:"item_no"`
+	Name           string `json:"name"`
+	NameZh         string `json:"name_zh"`
+	Qty            int    `json:"qty"`
+	BoughtQty      int    `json:"bought_qty"`
+	UnitPriceCents int    `json:"unit_price_cents"`
+	DiscountCents  int    `json:"discount_cents"`
+	RefundCents    int    `json:"refund_cents"`
+	PurchasedAt    string `json:"purchased_at"`
+	Store          string `json:"store"`
+	StoreNo        string `json:"store_no"`
+	Status         string `json:"status"`
+	CreatedAt      string `json:"created_at"`
+	DoneAt         string `json:"done_at,omitempty"`
+}
+
+const returnColumns = `rt.id, rt.receipt_item_id, ri.receipt_id, ri.item_no, ri.name, ri.name_zh,
+	rt.qty, ri.qty, ri.unit_price_cents, ri.discount_cents, r.purchased_at, r.store, r.store_no,
+	rt.status, rt.created_at, rt.done_at`
+
+const returnJoin = `FROM returns rt
+	JOIN receipt_items ri ON ri.id = rt.receipt_item_id
+	JOIN receipts r ON r.id = ri.receipt_id`
+
+func scanReturn(row interface{ Scan(...any) error }) (*ReturnItem, error) {
+	it := &ReturnItem{}
+	err := row.Scan(&it.ID, &it.ReceiptItemID, &it.ReceiptID, &it.ItemNo, &it.Name, &it.NameZh,
+		&it.Qty, &it.BoughtQty, &it.UnitPriceCents, &it.DiscountCents, &it.PurchasedAt,
+		&it.Store, &it.StoreNo, &it.Status, &it.CreatedAt, &it.DoneAt)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	it.RefundCents = it.Qty * (it.UnitPriceCents - it.DiscountCents)
+	return it, nil
+}
+
+func (s *Store) getReturn(id int64) (*ReturnItem, error) {
+	return scanReturn(s.db.QueryRow(
+		`SELECT `+returnColumns+` `+returnJoin+` WHERE rt.id = ?`, id))
+}
+
+// AddReturn 把商品行加入退货清单。qty<=0 或超过购买数量时按购买数量计；
+// 已有待退记录时只更新数量，不重复建。
+func (s *Store) AddReturn(receiptItemID int64, qty int) (*ReturnItem, error) {
+	var bought int
+	err := s.db.QueryRow(`SELECT qty FROM receipt_items WHERE id = ?`, receiptItemID).Scan(&bought)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, errNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	if qty <= 0 || qty > bought {
+		qty = bought
+	}
+	res, err := s.db.Exec(`UPDATE returns SET qty = ?
+		WHERE receipt_item_id = ? AND status = 'pending'`, qty, receiptItemID)
+	if err != nil {
+		return nil, err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		ins, err := s.db.Exec(`INSERT INTO returns (receipt_item_id, qty, status, created_at)
+			VALUES (?, ?, 'pending', ?)`, receiptItemID, qty, nowStr())
+		if err != nil {
+			return nil, err
+		}
+		id, _ := ins.LastInsertId()
+		return s.getReturn(id)
+	}
+	var id int64
+	if err := s.db.QueryRow(`SELECT id FROM returns
+		WHERE receipt_item_id = ? AND status = 'pending'`, receiptItemID).Scan(&id); err != nil {
+		return nil, err
+	}
+	return s.getReturn(id)
+}
+
+func (s *Store) RemoveReturn(id int64) error {
+	res, err := s.db.Exec(`DELETE FROM returns WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+// SetReturnQty 改待退数量，夹在 1..购买数量之间。
+func (s *Store) SetReturnQty(id int64, qty int) (*ReturnItem, error) {
+	it, err := s.getReturn(id)
+	if err != nil {
+		return nil, err
+	}
+	if qty < 1 {
+		qty = 1
+	}
+	if qty > it.BoughtQty {
+		qty = it.BoughtQty
+	}
+	if _, err := s.db.Exec(`UPDATE returns SET qty = ? WHERE id = ?`, qty, id); err != nil {
+		return nil, err
+	}
+	return s.getReturn(id)
+}
+
+func (s *Store) SetReturnStatus(id int64, status string) error {
+	doneAt := ""
+	if status == "done" {
+		doneAt = nowStr()
+	}
+	res, err := s.db.Exec(`UPDATE returns SET status = ?, done_at = ? WHERE id = ?`, status, doneAt, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errNotFound
+	}
+	return nil
+}
+
+// MarkAllReturnsDone 把全部待退货标记为已处理，返回条数。
+func (s *Store) MarkAllReturnsDone() (int, error) {
+	res, err := s.db.Exec(`UPDATE returns SET status = 'done', done_at = ?
+		WHERE status = 'pending'`, nowStr())
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	return int(n), nil
+}
+
+func (s *Store) ListReturns(status string) ([]ReturnItem, error) {
+	rows, err := s.db.Query(
+		`SELECT `+returnColumns+` `+returnJoin+`
+		 WHERE rt.status = ?
+		 ORDER BY r.purchased_at DESC, rt.id DESC`, status)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []ReturnItem{}
+	for rows.Next() {
+		it, err := scanReturn(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *it)
+	}
+	return out, rows.Err()
+}
+
+// PendingReturnMap 返回某张小票的待退货记录（商品行 id → 记录），小票详情页用。
+func (s *Store) PendingReturnMap(receiptID string) (map[int64]ReturnItem, error) {
+	rows, err := s.db.Query(
+		`SELECT `+returnColumns+` `+returnJoin+`
+		 WHERE ri.receipt_id = ? AND rt.status = 'pending'`, receiptID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[int64]ReturnItem{}
+	for rows.Next() {
+		it, err := scanReturn(rows)
+		if err != nil {
+			return nil, err
+		}
+		out[it.ReceiptItemID] = *it
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) CountPendingReturns() (int, error) {
+	var n int
+	err := s.db.QueryRow(`SELECT COUNT(*) FROM returns WHERE status = 'pending'`).Scan(&n)
+	return n, err
 }
 
 // ---------- 盯价清单与价格观察 ----------
